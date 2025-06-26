@@ -1,5 +1,5 @@
 import ConnectyCube from 'connectycube';
-import { EventEmitter } from 'events';
+import { EventEmitter } from 'node:events';
 import { ConnectyCubeConfig } from '../interfaces/types';
 
 interface UserSession {

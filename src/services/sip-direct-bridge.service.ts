@@ -1,4 +1,4 @@
-import { EventEmitter } from 'events';
+import { EventEmitter } from 'node:events';
 import { ConnectyCubeService } from './connectycube.service';
 import { SipDirectBridgeConfig, SipCallSession, SipCallEvent, MediaStreamInfo } from '../interfaces/types';
 
@@ -93,22 +93,22 @@ export class SipDirectBridge extends EventEmitter {
 
   private setupSipEventHandlers(): void {
     // Setup ConnectyCube event handlers
-    this.connectyCubeService.on('callAccepted', (data) => {
+    this.connectyCubeService.on('callAccepted', (data: any) => {
       console.log(`✅ ConnectyCube call accepted for SIP session: ${data.sessionId}`);
       this.handleConnectyCubeCallAccepted(data);
     });
 
-    this.connectyCubeService.on('callRejected', (data) => {
+    this.connectyCubeService.on('callRejected', (data: any) => {
       console.log(`❌ ConnectyCube call rejected for SIP session: ${data.sessionId}`);
       this.handleConnectyCubeCallRejected(data);
     });
 
-    this.connectyCubeService.on('userHungUp', (data) => {
+    this.connectyCubeService.on('userHungUp', (data: any) => {
       console.log(`📴 ConnectyCube user hung up for SIP session: ${data.sessionId}`);
       this.handleConnectyCubeHangup(data);
     });
 
-    this.connectyCubeService.on('remoteStreamReceived', (data) => {
+    this.connectyCubeService.on('remoteStreamReceived', (data: any) => {
       console.log(`🎵 Remote stream received for SIP session: ${data.sessionId}`);
       this.handleRemoteStreamReceived(data);
     });
