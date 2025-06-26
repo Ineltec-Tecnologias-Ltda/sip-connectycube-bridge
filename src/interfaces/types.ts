@@ -54,7 +54,9 @@ export interface SipDirectBridgeConfig {
   port: number;
   sip: SipConfig;
   connectyCube: ConnectyCubeConfig;
-  userMapping: Record<string, number>; // SIP URI → ConnectyCube User ID
+  // ⚠️ DEPRECATED: userMapping - agora usamos sistema de mapeamento exclusivo
+  // Mantido para compatibilidade, mas use src/config/sip-user-mappings.ts
+  userMapping?: Record<string, number>; // SIP URI → ConnectyCube User ID (legacy)
 }
 
 // Session para chamadas SIP diretas

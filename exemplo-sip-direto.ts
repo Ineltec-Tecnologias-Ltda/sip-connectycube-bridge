@@ -4,14 +4,22 @@
  * Este exemplo demonstra como conectar DIRETAMENTE um fone SIP
  * ao ConnectyCube, sem passar pelo Asterisk.
  * 
+ * SISTEMA DE MAPEAMENTO EXCLUSIVO:
+ * - Cada SIP URI tem credenciais ConnectyCube exclusivas
+ * - Usuários não compartilham sessões
+ * - Segurança aprimorada
+ * - Rastreamento individual
+ * 
  * VANTAGENS:
  * - Menos latência (sem intermediário)
  * - Mais simples (menos componentes)
  * - Melhor qualidade (menos conversões)
  * - Controle direto do SIP
+ * - Usuários exclusivos por departamento
  */
 
 import { SipDirectBridge } from './src/services/sip-direct-bridge.service';
+import { SIP_USER_MAPPINGS, MAPPING_STATS } from './src/config/sip-user-mappings';
 
 // Configuração direta SIP → ConnectyCube
 const sipDirectConfig = {
@@ -56,18 +64,42 @@ const sipDirectConfig = {
       videoFromSipPhoneOnly: true, // Vídeo apenas do telefone SIP
       audioBidirectional: true
     }
-  },
-  
-  // Mapeamento SIP → ConnectyCube
-  userMapping: {
-    // SIP URI → ConnectyCube User ID
-    'sip:vendas@meudominio.com': 12345,
-    'sip:suporte@meudominio.com': 12346,
-    'sip:gerencia@meudominio.com': 12347
   }
+  
+  // 🆕 NOVO SISTEMA: Mapeamento SIP → ConnectyCube (credenciais exclusivas)
+  // Configuração agora está em: src/config/sip-user-mappings.ts
+  // Cada usuário SIP tem credenciais ConnectyCube exclusivas
 };
 
 const sipBridge = new SipDirectBridge(sipDirectConfig);
+
+// Mostrar informações do sistema de mapeamento
+console.log('🔧 Inicializando ponte SIP direta...\n');
+
+console.log('📊 SISTEMA DE MAPEAMENTO EXCLUSIVO:');
+console.log(`   👥 Total de usuários: ${MAPPING_STATS.totalUsers}`);
+console.log(`   🏢 Departamentos: ${MAPPING_STATS.departments.join(', ')}`);
+console.log(`   📞 SIP URIs: ${MAPPING_STATS.sipUris.length} configurados`);
+console.log(`   🆔 ConnectyCube IDs: ${MAPPING_STATS.connectyCubeUserIds.join(', ')}\n`);
+
+console.log('👤 USUÁRIOS MAPEADOS:');
+SIP_USER_MAPPINGS.forEach((mapping, index) => {
+  console.log(`   ${index + 1}. 📞 ${mapping.sipUri}`);
+  console.log(`      👤 ConnectyCube: ${mapping.connectyCube.username} (ID: ${mapping.connectyCube.userId})`);
+  console.log(`      🏢 ${mapping.department} - ${mapping.name}\n`);
+});
+
+console.log('=== BENEFÍCIOS SIP DIRETO ===');
+console.log('🚀 Menor latência (sem Asterisk intermediário)');
+console.log('🎯 Controle direto do protocolo SIP');
+console.log('📱 Suporte nativo a fones SIP/softphones');
+console.log('🔧 Configuração mais simples');
+console.log('💰 Menor custo de infraestrutura');
+console.log('🌐 Compatível com qualquer provedor SIP');
+console.log('📹 Suporte completo a vídeo bidirecional');
+console.log('🔊 Áudio de alta qualidade (G.722, Opus)');
+console.log('👥 Credenciais ConnectyCube exclusivas por usuário');
+console.log('🔒 Segurança aprimorada - isolamento de sessões\n');
 
 // Inicializar ponte SIP direta
 sipBridge.initialize().then(() => {

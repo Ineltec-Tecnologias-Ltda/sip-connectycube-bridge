@@ -1,13 +1,21 @@
 import ConnectyCube from 'connectycube';
 import { EventEmitter } from 'node:events';
 import { ConnectyCubeConfig } from '../interfaces/types';
+import { findUserMappingBySipUri, SipUserMapping } from '../config/sip-user-mappings';
 
 interface UserSession {
   sessionId: string;
   user: any;
   webRTCSession: any;
-  username: string;
+  sipUri: string;
+  connectyCubeCredentials: {
+    username: string;
+    password: string;
+    userId: number;
+  };
   isLoggedIn: boolean;
+  department?: string;
+  name?: string;
 }
 
 /**
@@ -64,38 +72,61 @@ export class ConnectyCubeService extends EventEmitter {
     }
   }
 
-  async createUserSession(username: string, password: string, userId?: string): Promise<UserSession> {
+  /**
+   * Cria sessão ConnectyCube usando credenciais exclusivas do usuário SIP
+   * 
+   * @param sipUri - URI do usuário SIP (ex: sip:vendas@meudominio.com)
+   * @param sessionId - ID único da sessão
+   * @returns UserSession com credenciais ConnectyCube exclusivas
+   */
+  async createUserSession(sipUri: string, sessionId?: string): Promise<UserSession> {
     if (!this.initialized) {
       await this.initialize();
     }
 
-    const sessionId = userId || `sip-${Date.now()}`;
+    const finalSessionId = sessionId || `sip-${Date.now()}`;
+
+    // Buscar mapeamento SIP → ConnectyCube
+    const userMapping = findUserMappingBySipUri(sipUri);
+    if (!userMapping) {
+      throw new Error(`❌ Nenhum mapeamento ConnectyCube encontrado para SIP URI: ${sipUri}`);
+    }
 
     try {
-      console.log(`📋 Creating ConnectyCube session for SIP user: ${username} (sessionId: ${sessionId})`);
+      console.log(`📋 Creating ConnectyCube session for SIP user: ${sipUri}`);
+      console.log(`👤 ConnectyCube User: ${userMapping.connectyCube.username} (ID: ${userMapping.connectyCube.userId})`);
+      console.log(`🏢 Department: ${userMapping.department} - ${userMapping.name}`);
+      console.log(`🆔 Session ID: ${finalSessionId}`);
       
-      const user = await ConnectyCube.createSession({ login: username, password });
+      // Login no ConnectyCube com credenciais exclusivas do usuário SIP
+      const user = await ConnectyCube.createSession({ 
+        login: userMapping.connectyCube.username, 
+        password: userMapping.connectyCube.password 
+      });
       
       // Connect to chat
       await ConnectyCube.chat.connect({
         userId: user.id,
-        password: password
+        password: userMapping.connectyCube.password
       });
 
       const userSession: UserSession = {
-        sessionId,
+        sessionId: finalSessionId,
         user,
         webRTCSession: null,
-        username,
-        isLoggedIn: true
+        sipUri,
+        connectyCubeCredentials: userMapping.connectyCube,
+        isLoggedIn: true,
+        department: userMapping.department,
+        name: userMapping.name
       };
 
-      this.userSessions.set(sessionId, userSession);
-      console.log(`✅ SIP user ${username} logged in ConnectyCube (session ${sessionId})`);
+      this.userSessions.set(finalSessionId, userSession);
+      console.log(`✅ SIP user ${sipUri} logged in ConnectyCube as ${userMapping.connectyCube.username} (session ${finalSessionId})`);
       
       return userSession;
     } catch (error) {
-      console.error(`❌ Failed to create ConnectyCube session for SIP user ${username}:`, error);
+      console.error(`❌ Failed to create ConnectyCube session for SIP user ${sipUri}:`, error);
       throw error;
     }
   }
