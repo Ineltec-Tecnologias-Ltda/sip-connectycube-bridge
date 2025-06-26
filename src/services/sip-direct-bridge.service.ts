@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { UserAgent, Registerer, Inviter, Invitation, SessionState, URI } from 'sip.js';
 import { ConnectyCubeService } from './connectycube.service';
 import { SipDirectBridgeConfig, SipCallSession, SipCallEvent, MediaStreamInfo } from '../interfaces/types';
 
@@ -9,11 +10,16 @@ import { SipDirectBridgeConfig, SipCallSession, SipCallEvent, MediaStreamInfo } 
  * diretamente fones SIP aos usuários ConnectyCube via WebRTC.
  * 
  * FUNCIONALIDADES:
- * - Registro SIP automático
+ * - Registro SIP automático com SIP.js (produção)
  * - Detecção de chamadas SIP incoming
  * - Bridge RTP ↔ WebRTC
  * - Suporte a vídeo e áudio
  * - Mapeamento SIP URI → ConnectyCube User ID
+ * 
+ * PRODUÇÃO: Usa SIP.js - biblioteca moderna e TypeScript-ready
+ * - Melhor suporte a WebRTC
+ * - API limpa e bem documentada
+ * - Comunidade ativa e desenvolvimento contínuo
  */
 export class SipDirectBridge extends EventEmitter {
   private config: SipDirectBridgeConfig;
@@ -21,8 +27,9 @@ export class SipDirectBridge extends EventEmitter {
   private activeSessions: Map<string, SipCallSession> = new Map();
   private sipRegistered: boolean = false;
   
-  // Simulação de biblioteca SIP (em produção, usar uma biblioteca real como 'sip.js' ou 'jssip')
-  private sipClient: any = null;
+  // SIP.js - Biblioteca de produção para comunicação SIP real
+  private userAgent: UserAgent | null = null;
+  private registerer: Registerer | null = null;
 
   constructor(config: SipDirectBridgeConfig) {
     super();
@@ -59,12 +66,15 @@ export class SipDirectBridge extends EventEmitter {
   }
 
   private async initializeSipClient(): Promise<void> {
-    // NOTA: Em produção, usar uma biblioteca SIP real como:
-    // - JsSIP: https://jssip.net/
-    // - SIP.js: https://sipjs.com/
-    // - Node SIP: https://www.npmjs.com/package/sip
+    // PRODUÇÃO: Usando SIP.js - biblioteca moderna e TypeScript-ready
+    // Vantagens do SIP.js:
+    // ✅ TypeScript nativo
+    // ✅ WebRTC integrado
+    // ✅ API moderna e limpa
+    // ✅ Comunidade ativa
+    // ✅ Melhor para Node.js
     
-    console.log('📞 Inicializando cliente SIP...');
+    console.log('📞 Inicializando cliente SIP com SIP.js...');
     console.log(`SIP Server: ${this.config.sip.registrar}`);
     console.log(`SIP User: ${this.config.sip.username}@${this.config.sip.domain}`);
     console.log(`Transport: ${this.config.sip.transport}`);
@@ -73,22 +83,66 @@ export class SipDirectBridge extends EventEmitter {
       console.log(`Video Codecs: ${this.config.sip.videoCodecs.join(', ')}`);
     }
     
-    // Simulação - em produção, configurar cliente SIP real
-    this.sipClient = {
-      register: () => Promise.resolve(),
-      on: (event: string, callback: Function) => {
-        // Registrar callbacks
-      },
-      call: (uri: string, options: any) => {
-        // Iniciar chamada SIP
-      },
-      answer: (callId: string) => {
-        // Atender chamada
-      },
-      hangup: (callId: string) => {
-        // Desligar chamada
+    try {
+      // Configurar UserAgent SIP.js
+      const uri = UserAgent.makeURI(`sip:${this.config.sip.username}@${this.config.sip.domain}`);
+      const transportOptions = {
+        server: this.config.sip.registrar,
+        connectionTimeout: 5000,
+        maxReconnectionAttempts: 3,
+        reconnectionTimeout: 4000
+      };
+      
+      this.userAgent = new UserAgent({
+        uri,
+        transportOptions,
+        authorizationPassword: this.config.sip.password,
+        authorizationUsername: this.config.sip.username,
+        sessionDescriptionHandlerFactoryOptions: {
+          constraints: {
+            audio: true,
+            video: this.config.sip.videoCodecs ? true : false
+          }
+        }
+      });
+      
+      // Configurar event handlers
+      this.setupSipClientHandlers();
+      
+      // Iniciar UserAgent
+      await this.userAgent.start();
+      console.log('✅ SIP.js UserAgent iniciado com sucesso');
+      
+    } catch (error) {
+      console.error('❌ Erro ao inicializar SIP.js:', error);
+      throw error;
+    }
+  }
+  
+  private setupSipClientHandlers(): void {
+    if (!this.userAgent) return;
+    
+    // Handler para chamadas incoming
+    this.userAgent.delegate = {
+      onInvite: (invitation: Invitation) => {
+        console.log(`📞 Chamada SIP recebida de: ${invitation.remoteIdentity.uri}`);
+        this.handleIncomingSipInvitation(invitation);
       }
     };
+  }
+  
+  private async handleIncomingSipInvitation(invitation: Invitation): Promise<void> {
+    const callEvent: SipCallEvent = {
+      type: 'incoming_call',
+      sipCallId: invitation.id,
+      fromUri: invitation.remoteIdentity.uri.toString(),
+      toUri: invitation.localIdentity.uri.toString(),
+      hasVideo: invitation.sessionDescriptionHandler ? 
+        (invitation.sessionDescriptionHandler as any).constraints?.video : false,
+      timestamp: new Date()
+    };
+    
+    await this.handleIncomingSipCall(callEvent);
   }
 
   private setupSipEventHandlers(): void {
@@ -120,15 +174,31 @@ export class SipDirectBridge extends EventEmitter {
   }
 
   private async registerSip(): Promise<void> {
+    if (!this.userAgent) {
+      throw new Error('UserAgent SIP não foi inicializado');
+    }
+    
     try {
       const sipUri = `sip:${this.config.sip.username}@${this.config.sip.domain}`;
       
-      // Em produção, fazer registro SIP real
-      console.log(`📋 Registrando SIP: ${sipUri}`);
+      // Criar registerer com SIP.js
+      this.registerer = new Registerer(this.userAgent);
       
-      // Simulação de registro bem-sucedido
-      this.sipRegistered = true;
-      this.emit('sipRegistered', sipUri);
+      // Configurar event handlers do registerer usando stateChange
+      this.registerer.stateChange.addListener((newState) => {
+        if (newState === 'Registered') {
+          console.log(`✅ Registro SIP aceito: ${sipUri}`);
+          this.sipRegistered = true;
+          this.emit('sipRegistered', sipUri);
+        } else if (newState === 'Unregistered') {
+          console.log(`❌ Registro SIP perdido: ${sipUri}`);
+          this.sipRegistered = false;
+        }
+      });
+      
+      // Executar registro
+      console.log(`📋 Registrando SIP com SIP.js: ${sipUri}`);
+      await this.registerer.register();
       
     } catch (error) {
       console.error('❌ Falha no registro SIP:', error);
@@ -374,7 +444,26 @@ export class SipDirectBridge extends EventEmitter {
     // Shutdown ConnectyCube service
     await this.connectyCubeService.shutdown();
     
-    // Desregistrar do servidor SIP
+    // Desregistrar do servidor SIP usando SIP.js
+    if (this.registerer) {
+      try {
+        await this.registerer.unregister();
+        console.log('✅ Desregistrado do servidor SIP');
+      } catch (error) {
+        console.error('❌ Erro ao desregistrar SIP:', error);
+      }
+    }
+    
+    // Parar UserAgent SIP.js
+    if (this.userAgent) {
+      try {
+        await this.userAgent.stop();
+        console.log('✅ SIP.js UserAgent parado');
+      } catch (error) {
+        console.error('❌ Erro ao parar UserAgent:', error);
+      }
+    }
+    
     this.sipRegistered = false;
     
     console.log('✅ Ponte SIP desligada');

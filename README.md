@@ -188,3 +188,49 @@ MIT License - veja o arquivo [LICENSE](LICENSE) para detalhes.
 ---
 
 **💡 Solução moderna para conectar telefonia SIP tradicional ao mundo WebRTC, sem a complexidade do Asterisk!**
+
+## 🛠️ Tecnologia de Produção
+
+### **SIP.js - Biblioteca Escolhida** 🏆
+
+Este projeto usa **SIP.js** como biblioteca SIP de produção. Aqui está o porquê:
+
+#### **✅ Vantagens do SIP.js:**
+- **TypeScript nativo** - Integração perfeita com nosso código
+- **API moderna** - async/await, promises, código limpo
+- **WebRTC otimizado** - Ideal para bridge com ConnectyCube
+- **Node.js friendly** - Melhor performance no backend
+- **Comunidade ativa** - Desenvolvimento contínuo
+- **Documentação excelente** - Fácil de aprender e usar
+
+#### **📊 SIP.js vs JsSIP:**
+
+| Critério | SIP.js 🏆 | JsSIP |
+|----------|-----------|-------|
+| TypeScript | ✅ Nativo | ❌ Apenas JS |
+| API | ✅ Moderna | ⚠️ Verbosa |
+| WebRTC | ✅ Otimizado | ⚠️ Básico |
+| Node.js | ✅ Excelente | ⚠️ OK |
+| Comunidade | ✅ Muito ativa | ⚠️ Menos ativa |
+| Documentação | ✅ Atualizada | ❌ Desatualizada |
+
+#### **🚀 Exemplo de Código SIP.js:**
+
+```typescript
+import { UserAgent, Registerer } from 'sip.js';
+
+// Código limpo e tipado
+const userAgent = new UserAgent({
+  uri: UserAgent.makeURI('sip:user@domain.com')!,
+  authorizationPassword: 'password'
+});
+
+// Event handlers com auto-complete
+userAgent.delegate = {
+  onInvite: (invitation) => {
+    console.log('Chamada:', invitation.remoteIdentity.uri);
+  }
+};
+
+await userAgent.start();
+```
