@@ -1,0 +1,251 @@
+# SIP-ConnectyCube Bridge - Docker Development Environment
+version: '3.8'
+
+services:
+  # FreeSWITCH Server
+  freeswitch:
+    image: drachtio/freeswitch:latest
+    container_name: sip-bridge-freeswitch
+    hostname: freeswitch
+    ports:
+      - "5060:5060/udp"    # SIP
+      - "5060:5060/tcp"    # SIP TCP
+      - "8021:8021"        # Event Socket
+      - "10000-10100:10000-10100/udp"  # RTP
+    volumes:
+      - ./docker/freeswitch-config:/usr/local/freeswitch/conf
+      - ./docker/freeswitch-logs:/usr/local/freeswitch/log
+      - ./docker/freeswitch-db:/usr/local/freeswitch/db
+    environment:
+      - FREESWITCH_LOG_LEVEL=info
+      - FREESWITCH_LOG_CONSOLE=true
+    networks:
+      - sip-bridge-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "fs_cli", "-x", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # SIP-ConnectyCube Bridge Application
+  sip-bridge:
+    build: 
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: sip-bridge-app
+    hostname: sip-bridge
+    ports:
+      - "3000:3000"        # API/Dashboard
+      - "9229:9229"        # Debug port
+    volumes:
+      - .:/app
+      - /app/node_modules  # Anonymous volume for node_modules
+      - ./logs:/app/logs
+    environment:
+      - NODE_ENV=development
+      - DEBUG=sip-bridge:*
+      - SIP_SERVER=freeswitch
+      - SIP_PORT=5060
+      - CONNECTYCUBE_APP_ID=${CONNECTYCUBE_APP_ID:-your_app_id}
+      - CONNECTYCUBE_AUTH_KEY=${CONNECTYCUBE_AUTH_KEY:-your_auth_key}
+      - CONNECTYCUBE_AUTH_SECRET=${CONNECTYCUBE_AUTH_SECRET:-your_auth_secret}
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://bridge:password@postgres:5432/sipbridge
+      - LOG_LEVEL=debug
+    depends_on:
+      - freeswitch
+      - redis
+      - postgres
+    networks:
+      - sip-bridge-net
+    restart: unless-stopped
+    command: npm run dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: sip-bridge-redis
+    hostname: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+      - ./docker/redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - sip-bridge-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: sip-bridge-postgres
+    hostname: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=sipbridge
+      - POSTGRES_USER=bridge
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d
+    networks:
+      - sip-bridge-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bridge -d sipbridge"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: sip-bridge-nginx
+    hostname: nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/ssl:/etc/nginx/ssl
+      - ./public:/var/www/html
+    depends_on:
+      - sip-bridge
+    networks:
+      - sip-bridge-net
+    restart: unless-stopped
+
+  # Monitoring - Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: sip-bridge-prometheus
+    hostname: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - sip-bridge-net
+    restart: unless-stopped
+
+  # Monitoring - Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: sip-bridge-grafana
+    hostname: grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./docker/grafana/datasources:/etc/grafana/provisioning/datasources
+    depends_on:
+      - prometheus
+    networks:
+      - sip-bridge-net
+    restart: unless-stopped
+
+  # Log Management - Loki
+  loki:
+    image: grafana/loki:latest
+    container_name: sip-bridge-loki
+    hostname: loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./docker/loki.yml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - sip-bridge-net
+    restart: unless-stopped
+
+  # Log Collector - Promtail
+  promtail:
+    image: grafana/promtail:latest
+    container_name: sip-bridge-promtail
+    hostname: promtail
+    volumes:
+      - ./docker/promtail.yml:/etc/promtail/config.yml
+      - ./logs:/var/log/sip-bridge
+      - /var/log:/var/log/host:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    networks:
+      - sip-bridge-net
+    restart: unless-stopped
+
+  # Development Tools - Adminer (Database Admin)
+  adminer:
+    image: adminer:latest
+    container_name: sip-bridge-adminer
+    hostname: adminer
+    ports:
+      - "8080:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+    depends_on:
+      - postgres
+    networks:
+      - sip-bridge-net
+    restart: unless-stopped
+
+  # Development Tools - Redis Commander
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: sip-bridge-redis-commander
+    hostname: redis-commander
+    ports:
+      - "8081:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      - redis
+    networks:
+      - sip-bridge-net
+    restart: unless-stopped
+
+networks:
+  sip-bridge-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  loki-data:
+    driver: local
