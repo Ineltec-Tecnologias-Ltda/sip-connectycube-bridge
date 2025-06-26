@@ -1,0 +1,39 @@
+{
+  "name": "sip-connectycube-bridge",
+  "version": "1.0.0",
+  "description": "Bridge direto entre fones SIP e ConnectyCube WebRTC - sem Asterisk",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "start": "node dist/index.js",
+    "sip-direct": "ts-node exemplo-sip-direto.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "sip",
+    "webrtc",
+    "connectycube",
+    "bridge",
+    "voip",
+    "video-call"
+  ],
+  "author": "Roberto Fonseca",
+  "license": "MIT",
+  "dependencies": {
+    "connectycube": "^3.20.1",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.17",
+    "@types/node": "^18.15.11",
+    "@types/uuid": "^9.0.1",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
