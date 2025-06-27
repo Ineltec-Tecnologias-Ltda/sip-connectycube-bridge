@@ -97,18 +97,39 @@ CONNECTYCUBE_ACCOUNT_KEY=sua_account_key
 
 ## 🔄 Fluxo de Chamada
 
-### **📞 Sinalização (SIP):**
-1. **Fone SIP** registra no servidor SIP (FreeSWITCH/Asterisk)
-2. **Servidor SIP** roteia chamada para **Bridge**
+### **📞 Sinalização (SIP) - Apenas Controle:**
+
+1. **Fone SIP** registra no servidor SIP (FreeSWITCH/Asterisk/Kamailio)
+2. **Servidor SIP** roteia **sinalização** para **Bridge** 
 3. **Bridge** mapeia SIP URI → ConnectyCube User
 4. **Bridge** autentica no ConnectyCube
 5. **Chamada WebRTC** é iniciada via ConnectyCube
 
-### **🎵 Mídia (Áudio/Vídeo):**
+### **🎵 Mídia (Áudio/Vídeo) - BYPASS do Servidor SIP:**
+
+#### **❗ CRUCIAL: Servidor SIP vs Bridge para Mídia**
+
+**🔴 Servidor SIP (FreeSWITCH/Asterisk/Kamailio):**
+- ✅ **Sinalização** - INVITE, BYE, ACK, registro
+- ❌ **Mídia** - RTP NÃO passa pelo servidor SIP
+
+**🟢 Bridge:**
+- ❌ **Sinalização** - Só recebe notificação de chamada
+- ✅ **Mídia** - TODO o RTP/WebRTC passa pelo Bridge
+
 ```text
+SINALIZAÇÃO (SIP):
+[Fone SIP] ←──SIP──→ [Servidor SIP] ──notifica──→ [Bridge]
+    📞       controle     🖥️            evento       🌉
+
+MÍDIA (RTP/WebRTC):
 [Fone SIP] ←────RTP────→ [Bridge] ←────WebRTC────→ [ConnectyCube] ←────WebRTC────→ [App]
     📞        áudio/vídeo    🌉      áudio/vídeo        🌐         áudio/vídeo      📱
 ```
+
+**⚠️ IMPORTANTE**: 
+- **Servidor SIP**: Só sinalização (como um "corretor" de chamadas)
+- **Bridge**: Processa TODA a mídia (como um "tradutor" RTP ↔ WebRTC)
 
 ## 🎥 **Fluxo de Mídia: Como Funciona na Prática**
 
@@ -543,7 +564,7 @@ MIT License - veja o arquivo [LICENSE](LICENSE) para detalhes.
 
 **Agora (Componentes especializados):**
 ```bash
-# Cada ferramenta faz UMA coisa bem feita
+# Cada ferramenta faz uma UMA coisa bem feita
 [FreeSWITCH: só SIP] + [Bridge: só ConnectyCube] + [Redis: cache compartilhado]
 ```
 
@@ -1237,74 +1258,165 @@ curl -f http://localhost:3000/health || (echo "❌ Health check failed" && exit 
 echo "✅ Deploy completed successfully!"
 ```
 
-### **📈 Recomendações por Caso de Uso**
+## ❗ **ESCLARECIMENTO CRUCIAL: Servidor SIP vs Bridge**
 
-#### **🏢 Call Center (100+ agentes):**
+### **🚫 MITO: "Mídia passa pelo servidor SIP"**
 
-- **Servidor:** Kamailio + FreeSWITCH cluster
-- **Infraestrutura:** Multi-servidor com load balancer
-- **Monitoring:** Grafana + alertas em tempo real
-- **Backup:** Replicação em tempo real
-- **Custo:** $500-1500/mês
+**❌ FALSO**: FreeSWITCH, Asterisk e Kamailio **NÃO processam a mídia** nesta arquitetura!
 
-#### **🏠 Empresa Pequena (5-20 funcionários):**
+### **✅ REALIDADE: Separação Total de Responsabilidades**
 
-- **Servidor:** FreeSWITCH + FusionPBX
-- **Infraestrutura:** 1 VPS (4GB RAM)
-- **Monitoring:** Logs básicos
-- **Backup:** Snapshot diário
-- **Custo:** $20-50/mês
+#### **🖥️ Servidor SIP (FreeSWITCH/Asterisk/Kamailio) - SÓ Sinalização:**
 
-#### **🌐 Multi-tenant (vários clientes):**
+```text
+┌─────────────────┐    ┌──────────────────┐
+│   FONE SIP      │    │   SERVIDOR SIP   │
+│                 │    │                  │
+│ 📞 INVITE ──────┼────┼→ Processa SIP    │
+│ 📞 BYE    ──────┼────┼→ Autentica       │  
+│ 📞 ACK    ──────┼────┼→ Roteia          │
+│ 📞 REGISTER ────┼────┼→ Registra        │
+│                 │    │                  │
+│ 🎤 RTP Audio    │    │ ❌ NÃO TOCA      │
+│ 📹 RTP Video ───┼────┼→ ❌ BYPASS       │
+│                 │    │                  │
+└─────────────────┘    └──────────────────┘
+```
 
-- **Servidor:** Kamailio + FreeSWITCH farm
-- **Infraestrutura:** Kubernetes auto-scaling
-- **Monitoring:** Prometheus + Grafana
-- **Backup:** Multi-região
-- **Custo:** $1000+/mês
+**O que o servidor SIP FAZ:**
+- ✅ Registro de usuários (REGISTER)
+- ✅ Sinalização de chamadas (INVITE, BYE, ACK)
+- ✅ Autenticação SIP (401 Unauthorized)
+- ✅ Roteamento de chamadas
+- ✅ Notifica o Bridge sobre nova chamada
 
-#### **🚀 Startup (crescimento rápido):**
+**O que o servidor SIP NÃO FAZ:**
+- ❌ Processar RTP (áudio/vídeo)
+- ❌ Transcodificar codecs
+- ❌ Falar com ConnectyCube
+- ❌ Converter RTP → WebRTC
 
-- **Servidor:** Twilio (início) → FreeSWITCH (crescimento)
-- **Infraestrutura:** Cloud com auto-scaling
-- **Monitoring:** Alertas críticos
-- **Backup:** Automático
-- **Custo:** $50-500/mês (escala conforme crescimento)
+#### **🌉 Bridge - SÓ Mídia:**
 
-### **📋 Checklist Final de Produção**
+```text
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   FONE SIP      │    │      BRIDGE      │    │  CONNECTYCUBE   │
+│                 │    │                  │    │                 │
+│ 📞 SIP ─────────┼────┼→ ❌ NÃO TOCA     │    │                 │
+│                 │    │                  │    │                 │
+│ 🎤 RTP Audio ───┼────┼→ ✅ DECODIFICA   │    │                 │
+│ 📹 RTP Video ───┼────┼→ ✅ TRANSCODIFICA├────┼→ WebRTC Stream  │
+│              ←──┼────┼← ✅ CODIFICA  ←──┼────┼← WebRTC Stream  │
+│                 │    │                  │    │                 │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+```
 
-#### **✅ Infraestrutura:**
+**O que o Bridge FAZ:**
+- ✅ Recebe RTP diretamente do fone
+- ✅ Decodifica áudio/vídeo
+- ✅ Transcodifica codecs (G.711 → Opus)
+- ✅ Converte RTP → WebRTC
+- ✅ Envia para ConnectyCube
 
-- [ ] Servidor SIP configurado e otimizado
-- [ ] Firewall configurado (5060, RTP range)
-- [ ] SSL/TLS para interfaces web
-- [ ] Backup automático configurado
-- [ ] Monitoring ativo
-- [ ] Alertas configurados
+**O que o Bridge NÃO FAZ:**
+- ❌ Sinalização SIP
+- ❌ Registro de usuários
+- ❌ Autenticação SIP
 
-#### **✅ Aplicação:**
+### **🔄 Fluxo REAL Completo:**
 
-- [ ] Environment variables de produção
-- [ ] Logs estruturados
-- [ ] Health checks
-- [ ] Graceful shutdown
-- [ ] Rate limiting
-- [ ] Error handling robusto
+#### **1. Inicialização da Chamada:**
 
-#### **✅ Segurança:**
+```text
+📞 Fone SIP: "INVITE sip:destino@empresa.com"
+     ↓
+🖥️ Servidor SIP: "Usuário autenticado, roteando..."
+     ↓ (notificação)
+🌉 Bridge: "Nova chamada detectada, conectando ao ConnectyCube"
+     ↓
+🌐 ConnectyCube: "Chamada WebRTC iniciada"
+```
 
-- [ ] Senhas fortes em todos os serviços
-- [ ] Fail2ban configurado
-- [ ] Updates automáticos de segurança
-- [ ] Auditoria de logs
-- [ ] Acesso restrito (VPN/IP whitelist)
+#### **2. Estabelecimento da Mídia:**
 
-#### **✅ Performance:**
+```text
+📞 Fone SIP ──────RTP──────→ 🌉 Bridge ──────WebRTC──────→ 🌐 ConnectyCube
+              (direto)                    (direto)
+              BYPASS                      
+           🖥️ Servidor SIP
+```
 
-- [ ] Tuning de kernel para rede
-- [ ] Otimização de DB
-- [ ] Cache configurado (Redis)
-- [ ] CDN para arquivos estáticos
-- [ ] Load balancer se necessário
+#### **3. Finalização da Chamada:**
 
-Esta documentação cobre desde pequenos deploys até infraestruturas enterprise. Escolha a arquitetura que melhor se adapta ao seu caso de uso e escale conforme necessário!
+```text
+📞 Fone SIP: "BYE"
+     ↓
+🖥️ Servidor SIP: "Chamada finalizada"
+     ↓ (notificação)
+🌉 Bridge: "Desconectando ConnectyCube"
+     ↓
+🌐 ConnectyCube: "Chamada WebRTC encerrada"
+```
+
+### **📊 Comparação: Tráfego por Componente**
+
+| **Componente** | **Sinalização SIP** | **Mídia RTP** | **Função** |
+|----------------|---------------------|---------------|------------|
+| **Servidor SIP** | ✅ 100% | ❌ 0% | Controle |
+| **Bridge** | ❌ 0% | ✅ 100% | Mídia |
+| **ConnectyCube** | ❌ 0% | ✅ 100% WebRTC | Distribuição |
+
+### **⚡ Por que Essa Separação é GENIAL?**
+
+#### **🔧 Vantagens da Separação:**
+
+**1. Especialização:**
+- **Servidor SIP**: Faz SIP muito bem
+- **Bridge**: Faz RTP↔WebRTC muito bem
+- **ConnectyCube**: Faz WebRTC muito bem
+
+**2. Escalabilidade:**
+```text
+🖥️ 1 Servidor SIP → 1000 registros (leve)
+🌉 3 Bridges → 100 chamadas cada (pesado)
+```
+
+**3. Manutenção:**
+- Atualizar Bridge ≠ mexer no servidor SIP
+- Problema na mídia ≠ problema na sinalização
+
+**4. Performance:**
+- Servidor SIP: CPU baixo (só texto)
+- Bridge: CPU alto (processamento de mídia)
+
+### **🆚 vs Asterisk Monolítico:**
+
+#### **❌ Asterisk Tradicional:**
+```text
+┌─────────────────────────────────────────┐
+│            ASTERISK FAZE TUDO           │
+│                                         │
+│ 📞 SIP + 🎤 RTP + 🌐 WebRTC + 📋 PBX   │
+│                                         │
+│ Um processo só = Um ponto de falha      │
+└─────────────────────────────────────────┘
+```
+
+#### **✅ Nossa Arquitetura:**
+```text
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│ SERVIDOR    │  │   BRIDGE    │  │CONNECTYCUBE │
+│    SIP      │  │             │  │             │
+│ 📞 SIP Only │  │ 🎤 RTP Only │  │ 🌐 WebRTC   │
+│             │  │             │  │             │
+│ Especialista│  │ Especialista│  │ Especialista│
+└─────────────┘  └─────────────┘  └─────────────┘
+```
+
+### **🎯 Conclusão: Separação Clara**
+
+**Servidor SIP = Garçom** (anota pedido, não cozinha)
+**Bridge = Cozinheiro** (processa a "mídia", não atende cliente)
+**ConnectyCube = Entregador** (distribui o produto final)
+
+Cada um faz **uma coisa muito bem**, em vez de um componente tentando fazer tudo mal.
