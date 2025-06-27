@@ -1,14 +1,17 @@
 import { EventEmitter } from 'node:events';
 // import { UserAgent, Registerer, Inviter, Invitation, SessionState, URI } from 'sip.js';
 import { ConnectyCubeService } from './connectycube.service';
-import { SipDirectBridgeConfig, SipCallSession, SipCallEvent, MediaStreamInfo } from '../interfaces/types';
+import { AsteriskAmiService } from './asterisk-ami.service';
+import { SipDirectBridgeConfig, SipCallSession, SipCallEvent, MediaStreamInfo, AmiCallEvent } from '../interfaces/types';
 import { findUserMappingBySipUri, hasSipUserMapping } from '../config/sip-user-mappings';
 
 /**
  * SipDirectBridge - Conecta fones SIP diretamente ao ConnectyCube
  * 
- * Esta classe elimina a necessidade do Asterisk, conectando
- * diretamente fones SIP aos usuários ConnectyCube via WebRTC.
+ * Esta classe oferece conectividade flexível entre SIP e ConnectyCube:
+ * - Modo SIP-only: Bridge direto SIP ↔ ConnectyCube (sem Asterisk)
+ * - Modo AMI-only: Controle via Asterisk AMI
+ * - Modo Híbrido: SIP.js para mídia + AMI para controle avançado
  * 
  * FUNCIONALIDADES:
  * - Registro SIP automático com SIP.js (produção)
@@ -16,6 +19,12 @@ import { findUserMappingBySipUri, hasSipUserMapping } from '../config/sip-user-m
  * - Bridge RTP ↔ WebRTC
  * - Suporte a vídeo e áudio
  * - Mapeamento SIP URI → ConnectyCube User ID
+ * - Integração AMI para controle avançado (opcional)
+ * 
+ * ARQUITETURA HÍBRIDA:
+ * - SIP.js: Processamento de mídia WebRTC otimizado
+ * - AMI: Controle, monitoramento e recursos avançados do Asterisk
+ * - ConnectyCube: WebRTC para aplicações web/mobile
  * 
  * PRODUÇÃO: Usa SIP.js - biblioteca moderna e TypeScript-ready
  * - Melhor suporte a WebRTC
@@ -25,8 +34,10 @@ import { findUserMappingBySipUri, hasSipUserMapping } from '../config/sip-user-m
 export class SipDirectBridge extends EventEmitter {
   private config: SipDirectBridgeConfig;
   private connectyCubeService: ConnectyCubeService;
+  private amiService?: AsteriskAmiService;
   private activeSessions: Map<string, SipCallSession> = new Map();
   private sipRegistered: boolean = false;
+  private mode: 'sip-only' | 'ami-only' | 'hybrid';
   
   // SIP.js - Implementação real (temporariamente desabilitada devido a ESM)
   // TODO: Configurar ESM para usar SIP.js em produção
@@ -35,35 +46,178 @@ export class SipDirectBridge extends EventEmitter {
   constructor(config: SipDirectBridgeConfig) {
     super();
     this.config = config;
+    this.mode = config.mode || 'sip-only';
     this.connectyCubeService = new ConnectyCubeService(config.connectyCube);
+    
+    // Inicializar AMI se configurado
+    if (config.ami && (this.mode === 'ami-only' || this.mode === 'hybrid')) {
+      this.amiService = new AsteriskAmiService(config.ami);
+    }
   }
 
   async initialize(): Promise<void> {
-    console.log('🔧 Inicializando ponte SIP direta...');
+    console.log(`🔧 Inicializando ponte SIP (modo: ${this.mode})...`);
     
     try {
       // Inicializar ConnectyCube
       await this.connectyCubeService.initialize();
       console.log('✅ ConnectyCube Service inicializado');
       
-      // Inicializar cliente SIP
-      await this.initializeSipClient();
-      console.log('✅ Cliente SIP inicializado');
+      // Inicializar AMI se configurado
+      if (this.amiService) {
+        await this.initializeAmiService();
+        console.log('✅ Asterisk AMI Service inicializado');
+      }
       
-      // Registrar eventos SIP
-      this.setupSipEventHandlers();
-      console.log('✅ Event handlers SIP configurados');
+      // Inicializar cliente SIP se não for modo AMI-only
+      if (this.mode !== 'ami-only') {
+        await this.initializeSipClient();
+        console.log('✅ Cliente SIP inicializado');
+        
+        // Registrar eventos SIP
+        this.setupSipEventHandlers();
+        console.log('✅ Event handlers SIP configurados');
+        
+        // Registrar no servidor SIP
+        await this.registerSip();
+        console.log('✅ Registrado no servidor SIP');
+      }
       
-      // Registrar no servidor SIP
-      await this.registerSip();
-      console.log('✅ Registrado no servidor SIP');
-      
-      console.log('🚀 Ponte SIP → ConnectyCube pronta!');
+      console.log(`🚀 Ponte ${this.mode} SIP ↔ ConnectyCube pronta!`);
       
     } catch (error) {
       console.error('❌ Erro ao inicializar ponte SIP:', error);
       throw error;
     }
+  }
+
+  private async initializeAmiService(): Promise<void> {
+    if (!this.amiService) return;
+    
+    console.log('🔧 Configurando integração AMI...');
+    
+    // Configurar event handlers AMI
+    this.amiService.on('connected', () => {
+      console.log('🔗 AMI conectado');
+      this.emit('amiConnected');
+    });
+
+    this.amiService.on('disconnected', () => {
+      console.log('❌ AMI desconectado');
+      this.emit('amiDisconnected');
+    });
+
+    this.amiService.on('channelCreated', (event: AmiCallEvent) => {
+      console.log('📞 Novo canal AMI:', event);
+      this.handleAmiChannelCreated(event);
+    });
+
+    this.amiService.on('channelHangup', (event: AmiCallEvent) => {
+      console.log('📞 Canal AMI finalizado:', event);
+      this.handleAmiChannelHangup(event);
+    });
+
+    this.amiService.on('bridgeEvent', (event: AmiCallEvent) => {
+      console.log('🔗 Bridge AMI:', event);
+      this.handleAmiBridgeEvent(event);
+    });
+
+    this.amiService.on('dialEvent', (event: AmiCallEvent) => {
+      console.log('📞 Discagem AMI:', event);
+      this.handleAmiDialEvent(event);
+    });
+
+    await this.amiService.initialize();
+  }
+
+  private handleAmiChannelCreated(event: AmiCallEvent): void {
+    // Verificar se canal é relevante para bridge ConnectyCube
+    const sipUri = this.extractSipUriFromChannel(event.channel);
+    if (!sipUri || !hasSipUserMapping(sipUri)) {
+      return; // Canal não mapeado para ConnectyCube
+    }
+
+    const userMapping = findUserMappingBySipUri(sipUri);
+    if (!userMapping) {
+      console.warn(`⚠️ Mapeamento não encontrado para SIP URI: ${sipUri}`);
+      return;
+    }
+
+    // Criar sessão de bridge
+    const session: SipCallSession = {
+      sessionId: `ami-${event.uniqueid}`,
+      sipCallId: event.uniqueid,
+      fromUri: event.calleridnum,
+      toUri: sipUri,
+      connectyCubeUserId: userMapping.connectyCube.userId,
+      status: 'ringing',
+      startTime: new Date(),
+      hasVideo: false, // AMI não detecta vídeo automaticamente
+      audioCodec: 'unknown'
+    };
+
+    this.activeSessions.set(session.sessionId, session);
+
+    // Emitir evento de chamada SIP
+    const sipEvent: SipCallEvent = {
+      type: 'incoming_call',
+      sipCallId: session.sipCallId,
+      fromUri: session.fromUri,
+      toUri: session.toUri,
+      timestamp: session.startTime,
+      hasVideo: session.hasVideo,
+      connectyCubeUser: {
+        username: userMapping.connectyCube.username,
+        password: userMapping.connectyCube.password,
+        userId: userMapping.connectyCube.userId
+      }
+    };
+
+    this.emit('sipCall', sipEvent);
+  }
+
+  private handleAmiChannelHangup(event: AmiCallEvent): void {
+    // Encontrar sessão associada
+    const session = Array.from(this.activeSessions.values())
+      .find(s => s.sipCallId === event.uniqueid);
+
+    if (session) {
+      session.status = 'ended';
+      session.endTime = new Date();
+
+      const sipEvent: SipCallEvent = {
+        type: 'call_ended',
+        sipCallId: session.sipCallId,
+        fromUri: session.fromUri,
+        toUri: session.toUri,
+        timestamp: new Date(),
+        hasVideo: session.hasVideo
+      };
+
+      this.emit('sipCall', sipEvent);
+      this.activeSessions.delete(session.sessionId);
+    }
+  }
+
+  private handleAmiBridgeEvent(event: AmiCallEvent): void {
+    console.log('🔗 Bridge estabelecido via AMI:', event.bridgeData);
+    // Implementar lógica de bridge conforme necessário
+  }
+
+  private handleAmiDialEvent(event: AmiCallEvent): void {
+    console.log('📞 Discagem detectada via AMI:', event);
+    // Implementar lógica de discagem conforme necessário
+  }
+
+  private extractSipUriFromChannel(channel: string): string | null {
+    // Extrair SIP URI do nome do canal
+    // Ex: "SIP/1001-00000001" -> "sip:1001@domain.com"
+    const match = channel.match(/SIP\/(\d+)-/);
+    if (match) {
+      const extension = match[1];
+      return `sip:${extension}@${this.config.sip.domain}`;
+    }
+    return null;
   }
 
   private async initializeSipClient(): Promise<void> {
@@ -391,6 +545,51 @@ export class SipDirectBridge extends EventEmitter {
     console.log(`📴 Chamada SIP ${session.sipCallId} finalizada`);
   }
 
+  // Métodos públicos para controle AMI
+
+  async hangupChannelViaAmi(channel: string): Promise<boolean> {
+    if (!this.amiService) {
+      throw new Error('AMI Service não inicializado');
+    }
+    return await this.amiService.hangupChannel(channel);
+  }
+
+  async transferCallViaAmi(channel: string, extension: string, context: string = 'default'): Promise<boolean> {
+    if (!this.amiService) {
+      throw new Error('AMI Service não inicializado');
+    }
+    return await this.amiService.transferCall(channel, extension, context);
+  }
+
+  async originateCallViaAmi(channel: string, extension: string, context: string = 'default'): Promise<boolean> {
+    if (!this.amiService) {
+      throw new Error('AMI Service não inicializado');
+    }
+    return await this.amiService.originateCall(channel, extension, context);
+  }
+
+  async bridgeChannelsViaAmi(channel1: string, channel2: string): Promise<boolean> {
+    if (!this.amiService) {
+      throw new Error('AMI Service não inicializado');
+    }
+    return await this.amiService.bridgeChannels(channel1, channel2);
+  }
+
+  getAsteriskChannels(): Map<string, any> {
+    if (!this.amiService) {
+      return new Map();
+    }
+    return this.amiService.getActiveChannels();
+  }
+
+  isAmiConnected(): boolean {
+    return this.amiService ? this.amiService.isConnected() : false;
+  }
+
+  getBridgeMode(): string {
+    return this.mode;
+  }
+
   getActiveSessions(): Map<string, SipCallSession> {
     return this.activeSessions;
   }
@@ -406,6 +605,12 @@ export class SipDirectBridge extends EventEmitter {
     const sessionIds = Array.from(this.activeSessions.keys());
     for (const sessionId of sessionIds) {
       await this.hangupCall(sessionId);
+    }
+    
+    // Shutdown AMI service se ativo
+    if (this.amiService) {
+      await this.amiService.disconnect();
+      console.log('✅ AMI Service desconectado');
     }
     
     // Shutdown ConnectyCube service

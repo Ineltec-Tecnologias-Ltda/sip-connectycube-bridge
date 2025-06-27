@@ -19,20 +19,72 @@ export interface SipCallEvent {
   metadata?: any;
 }
 
-export interface ConnectyCubeConfig {
-  appId: string;
-  authKey: string;
-  authSecret: string;
-  accountKey: string;
-  apiEndpoint?: string;
-  chatEndpoint?: string;
-  videoConfig?: {
-    defaultVideoEnabled: boolean;
-    videoFromSipPhoneOnly: boolean;
-    audioBidirectional: boolean;
+// Configuração do Asterisk Manager Interface (AMI)
+export interface AmiConfig {
+  host: string;
+  port: number;
+  username: string;
+  secret: string;
+  events: boolean;
+  reconnect: boolean;
+  keepAlive: boolean;
+  keepAliveDelay?: number;
+}
+
+// Configuração híbrida: SIP.js para mídia + AMI para controle
+export interface HybridBridgeConfig {
+  mode: 'sip-only' | 'ami-only' | 'hybrid';
+  ami?: AmiConfig;
+  sip: SipConfig;
+  connectyCube: ConnectyCubeConfig;
+  mediaHandling: {
+    sipJsForMedia: boolean;
+    amiForControl: boolean;
+    asteriskContext: string;
+    dialplanIntegration: boolean;
   };
 }
 
+// Eventos AMI específicos para integração
+export interface AmiCallEvent {
+  event: string;
+  channel: string;
+  uniqueid: string;
+  calleridnum: string;
+  calleridname: string;
+  connectedlinenum: string;
+  connectedlinename: string;
+  accountcode: string;
+  context: string;
+  exten: string;
+  priority: string;
+  timestamp: Date;
+  bridgeData?: {
+    bridgeUniqueId: string;
+    bridgeType: string;
+    bridgeChannels: string[];
+  };
+}
+
+// Status de canal do Asterisk
+export interface AsteriskChannelStatus {
+  channel: string;
+  channelState: string;
+  channelStateDesc: string;
+  callerIdNum: string;
+  callerIdName: string;
+  connectedLineNum: string;
+  connectedLineName: string;
+  language: string;
+  accountCode: string;
+  context: string;
+  exten: string;
+  priority: string;
+  uniqueId: string;
+  linkedId: string;
+}
+
+// Configuração SIP
 export interface SipConfig {
   domain: string;
   port: number;
@@ -50,10 +102,28 @@ export interface SipConfig {
   dtmfMode?: 'RFC2833' | 'INFO' | 'INBAND';
 }
 
+// Configuração ConnectyCube
+export interface ConnectyCubeConfig {
+  appId: string;
+  authKey: string;
+  authSecret: string;
+  accountKey: string;
+  apiEndpoint?: string;
+  chatEndpoint?: string;
+  videoConfig?: {
+    defaultVideoEnabled: boolean;
+    videoFromSipPhoneOnly: boolean;
+    audioBidirectional: boolean;
+  };
+}
+
+// Configuração do SIP Direct Bridge
 export interface SipDirectBridgeConfig {
   port: number;
+  mode?: 'sip-only' | 'ami-only' | 'hybrid'; // Novo: modo de operação
   sip: SipConfig;
   connectyCube: ConnectyCubeConfig;
+  ami?: AmiConfig; // Novo: configuração AMI opcional
   // ⚠️ DEPRECATED: userMapping - agora usamos sistema de mapeamento exclusivo
   // Mantido para compatibilidade, mas use src/config/sip-user-mappings.ts
   userMapping?: Record<string, number>; // SIP URI → ConnectyCube User ID (legacy)

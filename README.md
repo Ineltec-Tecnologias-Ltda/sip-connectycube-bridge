@@ -450,6 +450,9 @@ npm run dev
 # Exemplo SIP direto
 npm run sip-direct
 
+# Exemplo híbrido (SIP.js + AMI + ConnectyCube) 🆕
+npm run sip-hybrid
+
 # Build para produção
 npm run build
 
@@ -888,744 +891,128 @@ Para começar rapidamente:
 
 ---
 
-## 🏗️ Infraestrutura SIP para Produção
+## 🔌 **Integração AMI Implementada!**
 
-### **🎯 Arquiteturas Recomendadas por Escala**
+### **🎯 Arquitetura Híbrida Disponível**
 
-#### **📞 Pequena Escala (1-50 usuários)**
+O projeto agora suporta **três modos de operação**:
 
-```text
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Fones SIP     │────│  FreeSWITCH +   │────│ ConnectyCube    │
-│   (Escritório)  │    │   FusionPBX      │    │    Bridge       │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-                            │
-                       ┌────▼─────┐
-                       │ Internet │
-                       │ Público  │
-                       └──────────┘
-```
+1. **`sip-only`** - Bridge direto SIP ↔ ConnectyCube (sem Asterisk)
+2. **`ami-only`** - Controle via Asterisk AMI apenas
+3. **`hybrid`** - **Recomendado**: SIP.js para mídia + AMI para controle
 
-**Infraestrutura:**
-
-- 1x VM (2 CPU, 4GB RAM, 20GB SSD)
-- FreeSWITCH + FusionPBX
-- Bridge Node.js no mesmo servidor
-- Firewall básico (UFW)
-
-**Custos:** $10-30/mês (VPS Digital Ocean/Linode)
-
-#### **🏢 Média Escala (50-500 usuários)**
-
-```text
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Fones SIP     │────│ Load Balancer    │────│ ConnectyCube    │
-│ (Multi-escritório)   │  (HAProxy)       │    │    Bridge       │
-└─────────────────┘    └────────┬─────────┘    │  (Redundante)   │
-                                │              └─────────────────┘
-                       ┌────────▼─────────┐
-                       │ FreeSWITCH Cluster│
-                       │ (3 nodes)        │
-                       └──────────────────┘
-                                │
-                       ┌────────▼─────────┐
-                       │ PostgreSQL HA    │
-                       │ (Master/Slave)   │
-                       └──────────────────┘
-```
-
-**Infraestrutura:**
-
-- 3x VM FreeSWITCH (4 CPU, 8GB RAM, 50GB SSD)
-- 2x VM PostgreSQL (2 CPU, 4GB RAM, 100GB SSD)
-- 2x VM Bridge Node.js (2 CPU, 4GB RAM)
-- 1x Load Balancer (HAProxy)
-- Monitoring (Zabbix/Prometheus)
-
-**Custos:** $200-500/mês
-
-#### **🏭 Grande Escala (500+ usuários)**
-
-```text
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Fones SIP     │────│   Kamailio       │────│ ConnectyCube    │
-│  (Global)       │    │  (SIP Proxy)     │    │    Bridge       │
-└─────────────────┘    └────────┬─────────┘    │  (K8s Cluster)  │
-                                │              └─────────────────┘
-                       ┌────────▼─────────┐
-                       │ FreeSWITCH Farm  │
-                       │ (Auto-scaling)   │
-                       └──────────────────┘
-                                │
-                       ┌────────▼─────────┐
-                       │ Redis Cluster    │
-                       │ + PostgreSQL HA  │
-                       └──────────────────┘
-```
-
-**Infraestrutura:**
-
-- Kubernetes cluster (EKS/GKE/AKS)
-- Kamailio para SIP routing
-- FreeSWITCH pods (auto-scaling)
-- Redis cluster para sessões
-- PostgreSQL cluster
-- CDN para media
-- Multi-região
-
-**Custos:** $1000+/mês
-
-### **🔧 Configurações de Produção Específicas**
-
-#### **FreeSWITCH para Produção**
-
-**Otimizações vars.xml:**
-
-```xml
-<!-- /usr/local/freeswitch/conf/vars.xml -->
-<X-PRE-PROCESS cmd="set" data="default_password=SenhaSegura123!"/>
-<X-PRE-PROCESS cmd="set" data="domain=$${local_ip_v4}"/>
-
-<!-- Performance -->
-<X-PRE-PROCESS cmd="set" data="rtp_start_port=10000"/>
-<X-PRE-PROCESS cmd="set" data="rtp_end_port=20000"/>
-<X-PRE-PROCESS cmd="set" data="max_sessions=1000"/>
-<X-PRE-PROCESS cmd="set" data="sessions_per_second=100"/>
-
-<!-- NAT/Firewall -->
-<X-PRE-PROCESS cmd="set" data="external_rtp_ip=SEU_IP_PUBLICO"/>
-<X-PRE-PROCESS cmd="set" data="external_sip_ip=SEU_IP_PUBLICO"/>
-```
-
-**Tuning sip_profiles/internal.xml:**
-
-```xml
-<param name="rtp-ip" value="$${local_ip_v4}"/>
-<param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
-<param name="sip-ip" value="$${local_ip_v4}"/>
-<param name="ext-sip-ip" value="$${external_sip_ip}"/>
-
-<!-- Performance -->
-<param name="session-timeout" value="1800"/>
-<param name="max-proceeding" value="1000"/>
-<param name="challenge-realm" value="auto_from"/>
-
-<!-- NAT -->
-<param name="apply-nat-acl" value="nat.auto"/>
-<param name="force-rport" value="true"/>
-<param name="liberal-dtmf" value="true"/>
-```
-
-#### **Asterisk para Produção**
-
-**Otimizações asterisk.conf:**
-
-```ini
-[options]
-maxload = 0.9
-maxcalls = 1000
-dontwarn = yes
-dumpcore = no
-
-[compat]
-pbx_realtime=1.6
-res_agi=1.6
-app_set=1.6
-```
-
-**Tuning sip.conf:**
-
-```ini
-[general]
-context=default
-port=5060
-bindaddr=0.0.0.0
-externip=SEU_IP_PUBLICO
-localnet=192.168.1.0/255.255.255.0
-nat=force_rport,comedia
-canreinvite=no
-qualify=yes
-qualifyfreq=60
-```
-
-#### **Kamailio para Alta Performance**
-
-**Configuração kamailio.cfg:**
+### **🚀 Teste Rápido da Integração AMI**
 
 ```bash
-# Performance
-children=8
-tcp_children=8
-server_header="Server: SIP-Bridge"
-user_agent_header="User-Agent: SIP-Bridge/1.0"
+# Copiar arquivo de configuração AMI
+cp .env.ami.example .env
 
-# Memory
-pkg_mem=8
-shm_mem=64
-
-# Network
-port=5060
-listen=udp:0.0.0.0:5060
-listen=tcp:0.0.0.0:5060
-
-# Modules
-loadmodule "tm.so"
-loadmodule "sl.so"
-loadmodule "rr.so"
-loadmodule "pv.so"
-loadmodule "maxfwd.so"
-loadmodule "textops.so"
-loadmodule "siputils.so"
-loadmodule "xlog.so"
-loadmodule "sanity.so"
+# Executar exemplo híbrido
+npm run sip-hybrid
 ```
 
-### **🐳 Docker para Desenvolvimento**
+### **⚙️ Configuração AMI**
 
-#### **docker-compose.yml Completo:**
-
-```yaml
-version: '3.8'
-services:
-  freeswitch:
-    image: drachtio/freeswitch:latest
-    ports:
-      - "5060:5060/udp"
-      - "5060:5060/tcp"
-      - "8021:8021"
-      - "10000-10100:10000-10100/udp"
-    volumes:
-      - ./freeswitch-config:/usr/local/freeswitch/conf
-    environment:
-      - FREESWITCH_LOG_LEVEL=info
-    
-  sip-bridge:
-    build: .
-    ports:
-      - "3000:3000"
-    depends_on:
-      - freeswitch
-      - redis
-    environment:
-      - NODE_ENV=development
-      - SIP_SERVER=freeswitch:5060
-      - REDIS_URL=redis://redis:6379
-    
-  redis:
-    image: redis:alpine
-    ports:
-      - "6379:6379"
-    
-  postgres:
-    image: postgres:13
-    environment:
-      - POSTGRES_DB=sipbridge
-      - POSTGRES_USER=bridge
-      - POSTGRES_PASSWORD=senha123
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-volumes:
-  postgres_data:
-```
-
-### **🔒 Segurança para Produção**
-
-#### **Firewall (UFW) - Ubuntu:**
-
-```bash
-# Resetar regras
-sudo ufw --force reset
-
-# Políticas padrão
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-
-# SSH (altere a porta se necessário)
-sudo ufw allow 22/tcp
-
-# SIP
-sudo ufw allow 5060/udp
-sudo ufw allow 5060/tcp
-
-# RTP
-sudo ufw allow 10000:20000/udp
-
-# HTTP/HTTPS (se usar interface web)
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-
-# Habilitar
-sudo ufw --force enable
-```
-
-#### **Fail2Ban para SIP:**
-
-```ini
-# /etc/fail2ban/jail.local
-[DEFAULT]
-bantime = 3600
-findtime = 600
-maxretry = 5
-
-[asterisk]
-enabled = true
-port = 5060
-protocol = udp
-filter = asterisk
-logpath = /var/log/asterisk/messages
-maxretry = 3
-bantime = 86400
-
-[freeswitch]
-enabled = true
-port = 5060
-protocol = udp
-filter = freeswitch
-logpath = /usr/local/freeswitch/log/freeswitch.log
-maxretry = 3
-bantime = 86400
-```
-
-### **📊 Monitoring e Alertas**
-
-#### **Prometheus + Grafana:**
-
-```yaml
-# prometheus.yml
-global:
-  scrape_interval: 15s
-
-scrape_configs:
-  - job_name: 'sip-bridge'
-    static_configs:
-      - targets: ['localhost:3000']
-  
-  - job_name: 'freeswitch'
-    static_configs:
-      - targets: ['localhost:9001']
-  
-  - job_name: 'node-exporter'
-    static_configs:
-      - targets: ['localhost:9100']
-```
-
-#### **Alertas importantes:**
-
-- CPU > 80%
-- Memória > 85%
-- Chamadas simultâneas > limite
-- Latência SIP > 500ms
-- Erro de registro SIP
-- Queda de conectividade ConnectyCube
-
-### **🚀 Deployment Automatizado**
-
-#### **Deploy Script (deploy.sh):**
-
-```bash
-#!/bin/bash
-set -e
-
-echo "🚀 Deploying SIP-ConnectyCube Bridge..."
-
-# Build da aplicação
-echo "📦 Building application..."
-npm run build
-
-# Backup da versão anterior
-echo "💾 Creating backup..."
-sudo systemctl stop sip-bridge
-cp -r /opt/sip-bridge /opt/sip-bridge.backup.$(date +%Y%m%d_%H%M%S)
-
-# Deploy nova versão
-echo "📁 Deploying new version..."
-sudo cp -r dist/* /opt/sip-bridge/
-sudo cp package.json /opt/sip-bridge/
-cd /opt/sip-bridge && sudo npm install --production
-
-# Restart serviços
-echo "🔄 Restarting services..."
-sudo systemctl start sip-bridge
-sudo systemctl restart freeswitch
-
-# Verificar saúde
-echo "🏥 Health check..."
-sleep 5
-curl -f http://localhost:3000/health || (echo "❌ Health check failed" && exit 1)
-
-echo "✅ Deploy completed successfully!"
-```
-
-## 🔌 **Integração AMI: Vantagens Adicionais**
-
-### **🤔 "Seria vantajoso conectar ao servidor SIP via AMI?"**
-
-**✅ SIM!** Para **Asterisk**, conectar via AMI (Asterisk Manager Interface) pode trazer benefícios significativos:
-
-### **🆚 Comparação: SIP.js vs AMI Integration**
-
-#### **📊 Matriz de Funcionalidades:**
-
-| **Funcionalidade** | **SIP.js Direto** | **AMI Integration** | **Híbrido (Recomendado)** |
-|-------------------|-------------------|-------------------|---------------------------|
-| **Mídia RTP** | ✅ Excelente | ❌ Não suporta | ✅ SIP.js para mídia |
-| **Sinalização** | ✅ Básica | ✅ Completa | ✅ AMI para controle |
-| **CDR/Logs** | ❌ Limitado | ✅ Completo | ✅ AMI para logs |
-| **Transferência** | ❌ Complexo | ✅ Simples | ✅ AMI para transfer |
-| **Conferência** | ❌ Limitado | ✅ Nativo | ✅ AMI para conference |
-| **Monitoring** | ⚠️ Manual | ✅ Automático | ✅ AMI para status |
-| **Controle Chamadas** | ⚠️ Básico | ✅ Avançado | ✅ AMI para controle |
-
-### **🔄 Arquitetura Híbrida Recomendada:**
-
-#### **🎯 Melhor dos Dois Mundos:**
-
-```text
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   FONE SIP      │    │    ASTERISK      │    │     BRIDGE      │
-│                 │    │                  │    │                 │
-│ 📞 SIP ─────────┼────┼→ Sinalização     │    │                 │
-│                 │    │                  │    │                 │
-│ 🎤 RTP Audio ───┼────┼→ ❌ BYPASS ──────┼────┼→ ✅ Processa    │
-│ 📹 RTP Video ───┼────┼→ ❌ BYPASS ──────┼────┼→ ✅ Transcodifica│
-│                 │    │                  │    │                 │
-│                 │    │ 📊 AMI Events ───┼────┼→ ✅ Monitora    │
-│                 │    │ 🎛️ AMI Commands ←┼────┼← ✅ Controla    │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-```
-
-### **⚡ Vantagens da Integração AMI:**
-
-#### **1. 📊 Monitoramento Avançado:**
-
-```typescript
-// AMI Events em tempo real
-class AsteriskAMIIntegration {
-  onAMIEvent(event: AMIEvent) {
-    switch(event.Event) {
-      case 'Newchannel':
-        console.log(`Nova chamada: ${event.Channel}`);
-        this.bridge.prepareForCall(event.Channel);
-        break;
-        
-      case 'Hangup':
-        console.log(`Chamada finalizada: ${event.Channel}`);
-        this.bridge.cleanupCall(event.Channel);
-        break;
-        
-      case 'Newstate':
-        console.log(`Estado mudou: ${event.Channel} -> ${event.ChannelState}`);
-        this.updateCallStatus(event.Channel, event.ChannelState);
-        break;
-    }
-  }
-}
-```
-
-#### **2. 🎛️ Controle Avançado de Chamadas:**
-
-```typescript
-// Controle via AMI
-class CallControl {
-  async transferCall(channel: string, destination: string) {
-    // Via AMI - muito mais simples que SIP REFER
-    await this.ami.action('Redirect', {
-      Channel: channel,
-      Exten: destination,
-      Context: 'transfer-context'
-    });
-  }
-  
-  async holdCall(channel: string) {
-    // Hold nativo do Asterisk
-    await this.ami.action('Hold', { Channel: channel });
-  }
-  
-  async conferenceCall(channels: string[]) {
-    // Adiciona múltiplos canais em conferência
-    for (const channel of channels) {
-      await this.ami.action('ConfbridgeJoin', {
-        Channel: channel,
-        Conference: 'bridge-conf-001'
-      });
-    }
-  }
-}
-```
-
-#### **3. 📈 Analytics e CDR Completos:**
-
-```typescript
-// CDR em tempo real via AMI
-class CallAnalytics {
-  onCDREvent(cdr: CDREvent) {
-    const callData = {
-      src: cdr.Source,
-      dst: cdr.Destination,
-      startTime: new Date(cdr.StartTime),
-      duration: parseInt(cdr.Duration),
-      disposition: cdr.Disposition,
-      // Dados específicos do ConnectyCube
-      connectyCubeUser: this.bridge.getConnectyCubeUser(cdr.Source),
-      mediaQuality: this.bridge.getMediaStats(cdr.UniqueID)
-    };
-    
-    // Salva analytics completos
-    await this.analytics.saveCDR(callData);
-  }
-}
-```
-
-### **🔧 Implementação Prática:**
-
-#### **Bridge com AMI + SIP.js:**
-
-```typescript
-import { AMIClient } from 'asterisk-ami-client';
-import { UserAgent } from 'sip.js';
-
-class HybridSipBridge {
-  private ami: AMIClient;
-  private sipClient: UserAgent;
-  
-  async initialize() {
-    // 1. Conecta AMI para controle
-    this.ami = new AMIClient({
-      host: 'asterisk.empresa.com',
-      port: 5038,
-      username: 'bridge_user',
-      secret: 'bridge_secret'
-    });
-    
-    // 2. Conecta SIP para mídia
-    this.sipClient = new UserAgent({
-      uri: UserAgent.makeURI('sip:bridge@empresa.com'),
-      transportOptions: {
-        server: 'ws://asterisk.empresa.com:8088/ws'
-      }
-    });
-    
-    // 3. Event handlers
-    this.setupAMIHandlers();
-    this.setupSIPHandlers();
-  }
-  
-  private setupAMIHandlers() {
-    // Monitora eventos de chamada
-    this.ami.on('event', (event) => {
-      if (event.Event === 'Newchannel') {
-        this.onNewCall(event);
-      }
-    });
-  }
-  
-  private setupSIPHandlers() {
-    // Processa mídia RTP
-    this.sipClient.delegate = {
-      onInvite: (invitation) => {
-        this.handleMediaStream(invitation);
-      }
-    };
-  }
-  
-  private async onNewCall(event: AMIEvent) {
-    // 1. AMI detecta nova chamada
-    const channel = event.Channel;
-    const callerNumber = event.CallerIDNum;
-    
-    // 2. Mapeia para ConnectyCube
-    const connectyCubeUser = this.getUserMapping(callerNumber);
-    
-    // 3. Prepara bridge de mídia
-    await this.prepareMediaBridge(channel, connectyCubeUser);
-    
-    // 4. Inicia chamada ConnectyCube
-    await this.connectyCube.initiateCall(connectyCubeUser);
-  }
-}
-```
-
-### **📋 Configuração AMI no Asterisk:**
-
-#### **manager.conf:**
-
+#### **1. Configurar Asterisk manager.conf:**
 ```ini
 [general]
 enabled = yes
 port = 5038
 bindaddr = 127.0.0.1
-displayconnects = no
 
-[bridge_user]
+[bridge_ami]
 secret = bridge_secret_123
-read = system,call,log,verbose,command,agent,user,config,command,dtmf,reporting,cdr,dialplan
-write = system,call,log,verbose,command,agent,user,config,command,dtmf,reporting,cdr,dialplan
+read = all
+write = all
 ```
 
-#### **extensions.conf (mínimo):**
-
+#### **2. Configurar extensions.conf:**
 ```ini
 [usuarios_internos]
-; Apenas roteamento - mídia vai direto para bridge
-exten => _X.,1,NoOp(Chamada de ${CALLERID(num)} para ${EXTEN})
-exten => _X.,n,Set(BRIDGE_PEER=${EXTEN})
-exten => _X.,n,UserEvent(BridgeCall,Channel: ${CHANNEL},Caller: ${CALLERID(num)},Called: ${EXTEN})
-exten => _X.,n,Wait(300) ; Espera bridge processar
+exten => _X.,1,NoOp(Bridge: ${CALLERID(num)} → ${EXTEN})
+exten => _X.,n,UserEvent(BridgeCall,Channel: ${CHANNEL})
+exten => _X.,n,Wait(300)
 exten => _X.,n,Hangup()
 ```
 
-### **🎯 Casos de Uso Específicos para AMI:**
-
-#### **1. 📞 Call Center com Supervisão:**
-
-```typescript
-class CallCenterBridge {
-  async monitorCall(agentChannel: string, supervisorUser: string) {
-    // Via AMI - muito mais simples
-    await this.ami.action('Monitor', {
-      Channel: agentChannel,
-      Format: 'wav',
-      Mix: 'true'
-    });
-    
-    // Adiciona supervisor na chamada ConnectyCube
-    await this.connectyCube.addParticipant(supervisorUser);
-  }
-  
-  async whisperToAgent(agentChannel: string, message: string) {
-    // Whisper via AMI
-    await this.ami.action('Whisper', {
-      Channel: agentChannel,
-      Message: message
-    });
-  }
-}
+#### **3. Variáveis de ambiente (.env):**
+```bash
+BRIDGE_MODE=hybrid
+AMI_HOST=localhost
+AMI_PORT=5038
+AMI_USERNAME=bridge_ami
+AMI_SECRET=bridge_secret_123
 ```
 
-#### **2. 🔄 Transferência Inteligente:**
+### **🎛️ Funcionalidades AMI Disponíveis**
 
 ```typescript
-class SmartTransfer {
-  async blindTransfer(channel: string, destination: string) {
-    // 1. Via AMI - transfere no Asterisk
-    await this.ami.action('Redirect', {
-      Channel: channel,
-      Exten: destination,
-      Context: 'transfer-context'
-    });
-    
-    // 2. Atualiza chamada ConnectyCube
-    const newConnectyCubeUser = this.getUserMapping(destination);
-    await this.connectyCube.transferCall(newConnectyCubeUser);
-  }
-  
-  async attendedTransfer(channel1: string, channel2: string) {
-    // Conferência via AMI
-    await this.ami.action('Bridge', {
-      Channel1: channel1,
-      Channel2: channel2
-    });
-  }
-}
+// Controle de chamadas via AMI
+await bridge.hangupChannelViaAmi('SIP/1001-00000001');
+await bridge.transferCallViaAmi('SIP/1001-00000001', '2000');
+await bridge.originateCallViaAmi('SIP/1001', '2000');
+await bridge.bridgeChannelsViaAmi('SIP/1001-01', 'SIP/2000-01');
+
+// Monitoramento em tempo real
+const channels = bridge.getAsteriskChannels();
+const isConnected = bridge.isAmiConnected();
 ```
 
-#### **3. 📊 Dashboard em Tempo Real:**
+### **📊 Vantagens da Arquitetura Híbrida**
 
+| **Funcionalidade** | **SIP.js** | **AMI** | **Híbrido** |
+|-------------------|------------|---------|-------------|
+| **Mídia WebRTC** | ✅ Excelente | ❌ Não | ✅ Otimizada |
+| **Controle Avançado** | ❌ Limitado | ✅ Completo | ✅ Completo |
+| **Transferência** | ⚠️ Complexo | ✅ Simples | ✅ Simples |
+| **Conferência** | ❌ Não | ✅ Nativa | ✅ Nativa |
+| **Monitoramento** | ⚠️ Manual | ✅ Tempo Real | ✅ Tempo Real |
+| **Dashboard** | ❌ Não | ✅ Completo | ✅ Completo |
+
+### **🧪 Exemplos Práticos**
+
+#### **Call Center com Supervisão:**
 ```typescript
-class RealTimeDashboard {
-  private callStats = new Map();
-  
-  onAMIEvent(event: AMIEvent) {
-    switch(event.Event) {
-      case 'Newchannel':
-        this.callStats.set(event.Channel, {
-          start: new Date(),
-          caller: event.CallerIDNum,
-          status: 'ringing'
-        });
-        this.updateDashboard();
-        break;
-        
-      case 'Bridge':
-        const call = this.callStats.get(event.Channel1);
-        if (call) {
-          call.status = 'connected';
-          call.connectedAt = new Date();
-        }
-        this.updateDashboard();
-        break;
-    }
-  }
-  
-  getDashboardData() {
-    return {
-      activeCalls: this.callStats.size,
-      callsInQueue: this.getQueuedCalls(),
-      averageWaitTime: this.calculateAverageWait(),
-      agentsAvailable: this.getAvailableAgents()
-    };
-  }
-}
+// Monitorar chamada de agente
+await bridge.monitorCall('SIP/agente-01', 'supervisor_123');
+
+// Whisper para agente
+await ami.whisper('SIP/agente-01', 'Cliente VIP');
 ```
 
-### **⚖️ AMI vs SIP.js: Quando Usar Cada Um**
-
-#### **✅ Use AMI para:**
-- 📊 **Monitoring completo** - eventos em tempo real
-- 🎛️ **Controle avançado** - transfer, hold, conference
-- 📈 **Analytics/CDR** - dados completos de chamadas
-- 👥 **Call center** - supervisão, whisper, barge
-- 🔄 **Integrações** - CRM, helpdesk, etc.
-
-#### **✅ Use SIP.js para:**
-- 🎤 **Mídia RTP** - processamento de áudio/vídeo
-- ⚡ **Performance** - baixa latência
-- 🌐 **WebRTC** - conversão direta
-- 🔄 **Transcodificação** - codecs diferentes
-
-### **🏆 Arquitetura Híbrida Recomendada:**
-
+#### **Transferência Inteligente:**
 ```typescript
-class OptimalBridge {
-  // AMI para controle e monitoring
-  private ami: AMIClient;
-  
-  // SIP.js para mídia
-  private sipClient: UserAgent;
-  
-  // ConnectyCube para WebRTC
-  private connectyCube: ConnectyCubeService;
-  
-  async handleCall(amiEvent: AMIEvent) {
-    // 1. AMI detecta e controla
-    const callData = this.extractCallData(amiEvent);
-    
-    // 2. SIP.js processa mídia
-    const mediaStream = await this.sipClient.processMedia(callData.channel);
-    
-    // 3. ConnectyCube distribui WebRTC
-    await this.connectyCube.bridgeCall(callData.connectyCubeUser, mediaStream);
-    
-    // 4. AMI monitora status
-    this.ami.monitor(callData.channel);
-  }
-}
+// Transferência baseada em CRM
+const customerData = await crm.getCustomer(callerNumber);
+const targetAgent = await getAvailableAgent(customerData.priority);
+await bridge.transferCallViaAmi(channel, targetAgent);
 ```
 
-### **💡 Conclusão: AMI como Complemento Perfeito**
+#### **Dashboard em Tempo Real:**
+```typescript
+bridge.on('channelCreated', (event) => {
+  dashboard.updateCallStats({
+    activeCalls: bridge.getAsteriskChannels().size,
+    newCall: event
+  });
+});
+```
 
-**🎯 Estratégia Recomendada:**
+## 🛠️ Scripts Disponíveis
 
-1. **AMI** - Controle, monitoring e integrações avançadas
-2. **SIP.js** - Processamento de mídia RTP ↔ WebRTC  
-3. **ConnectyCube** - Distribuição WebRTC nativa
+```bash
+# Desenvolvimento
+npm run dev
 
-**Resultado:** Sistema **híbrido** que combina o melhor de cada tecnologia:
-- **Controle total** via AMI
-- **Performance otimizada** via SIP.js
-- **WebRTC nativo** via ConnectyCube
+# Exemplo SIP direto (sem Asterisk)
+npm run sip-direct
 
-Esta abordagem oferece **flexibilidade máxima** para implementar funcionalidades avançadas mantendo a performance otimizada para mídia!
+# Exemplo híbrido (SIP.js + AMI + ConnectyCube) 🆕
+npm run sip-hybrid
+
+# Build para produção
+npm run build
+
+# Executar build
+npm start
+```
