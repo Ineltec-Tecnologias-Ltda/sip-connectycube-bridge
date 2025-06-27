@@ -599,7 +599,7 @@ bindaddr = 127.0.0.1
 ```json
 {
   "sipServer": "sip.empresa.com:5060",
-  "connectyCube": {
+  "connectycube": {
     "appId": "123",
     "authKey": "abc"
   },
@@ -958,61 +958,145 @@ const channels = bridge.getAsteriskChannels();
 const isConnected = bridge.isAmiConnected();
 ```
 
-### **📊 Vantagens da Arquitetura Híbrida**
+## 📊 **Diagrama de Fluxo da Arquitetura Atual**
 
-| **Funcionalidade** | **SIP.js** | **AMI** | **Híbrido** |
-|-------------------|------------|---------|-------------|
-| **Mídia WebRTC** | ✅ Excelente | ❌ Não | ✅ Otimizada |
-| **Controle Avançado** | ❌ Limitado | ✅ Completo | ✅ Completo |
-| **Transferência** | ⚠️ Complexo | ✅ Simples | ✅ Simples |
-| **Conferência** | ❌ Não | ✅ Nativa | ✅ Nativa |
-| **Monitoramento** | ⚠️ Manual | ✅ Tempo Real | ✅ Tempo Real |
-| **Dashboard** | ❌ Não | ✅ Completo | ✅ Completo |
+### **🎯 Visão Geral dos Componentes**
 
-### **🧪 Exemplos Práticos**
+```text
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                        🏗️ ARQUITETURA HÍBRIDA IMPLEMENTADA                          │
+│                   SIP.js (Mídia) + AMI (Controle) + ConnectyCube                    │
+└─────────────────────────────────────────────────────────────────────────────────────┘
 
-#### **Call Center com Supervisão:**
-```typescript
-// Monitorar chamada de agente
-await bridge.monitorCall('SIP/agente-01', 'supervisor_123');
-
-// Whisper para agente
-await ami.whisper('SIP/agente-01', 'Cliente VIP');
+📞 FONE SIP          🏢 ASTERISK PBX       🌉 SIP BRIDGE        🌐 CONNECTYCUBE
+┌─────────────┐     ┌─────────────────┐    ┌─────────────────┐   ┌─────────────────┐
+│ Yealink     │────▶│ FreeSWITCH      │───▶│ Node.js + TS    │──▶│ WebRTC Cloud    │
+│ Grandstream │     │ Asterisk 18+    │    │ Hybrid Mode     │   │ Global CDN      │
+│ Polycom VVX │     │ Port 5060 (SIP) │    │ AMI + SIP.js    │   │ P2P/TURN Relay  │
+│ Softphones  │     │ Port 5038 (AMI) │    │ User Mapping    │   │ Opus/VP8/H.264  │
+└─────────────┘     └─────────────────┘    └─────────────────┘   └─────────────────┘
+       │                      │                      │                     │
+       ▼                      ▼                      ▼                     ▼
+   SIP Protocol         AMI Events/Control      Bridge Logic        WebRTC Streams
+  Registration            Real-time             Orchestration       Mobile/Web Apps
 ```
 
-#### **Transferência Inteligente:**
-```typescript
-// Transferência baseada em CRM
-const customerData = await crm.getCustomer(callerNumber);
-const targetAgent = await getAvailableAgent(customerData.priority);
-await bridge.transferCallViaAmi(channel, targetAgent);
+### **🔄 Fluxo de Uma Chamada (Passo a Passo)**
+
+```text
+🎬 CENÁRIO: Cliente liga para sip:vendas@empresa.com
+
+┌─ 1️⃣ REGISTRO SIP ──────────────────────────────────────────────────────────────────┐
+│                                                                                   │
+│  📞 Fone ────── SIP REGISTER ──────▶ 🏢 Asterisk ────── 200 OK ──────▶ ✅        │
+│     1001         sip:1001@domain       Port 5060         Registered    Ready     │
+│                                                                                   │
+└───────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ 2️⃣ CHAMADA ENTRANTE ──────────────────────────────────────────────────────────────┐
+│                                                                                   │
+│  📞 Cliente ──── INVITE ──────▶ 🏢 Asterisk ──── UserEvent ──────▶ 🌉 Bridge     │
+│     Externo     sip:vendas@        extensions.conf        BridgeCall    AMI       │
+│                 empresa.com        dialplan logic         Event         Service   │
+│                                                                                   │
+└───────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ 3️⃣ DETECÇÃO VIA AMI ──────────────────────────────────────────────────────────────┐
+│                                                                                   │
+│  🏢 Asterisk ──── AMI Event ──────▶ 🌉 Bridge ──── Extract ──────▶ 📋 Mapping    │
+│     Manager       Newchannel         AMI Service   SIP URI         User Lookup   │
+│     Interface     Channel Info       TCP:5038      from Channel    Exclusive     │
+│     TCP:5038      UniqueID: 123                                    Credentials   │
+│                                                                                   │
+└───────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ 4️⃣ MAPEAMENTO DE USUÁRIO ─────────────────────────────────────────────────────────┐
+│                                                                                   │
+│  📋 Mapping ──── Lookup ──────▶ 🔍 Found ──── Return ──────▶ 🌉 Bridge          │
+│     sip:vendas@  SIP URI          Match:       Credentials      Session         │
+│     empresa.com  in mappings      • User: vendas_cc             Creation        │
+│                                   • Pass: senha_123                             │
+│                                   • ID: 12345                                   │
+│                                                                                   │
+└───────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ 5️⃣ AUTENTICAÇÃO CONNECTYCUBE ─────────────────────────────────────────────────────┐
+│                                                                                   │
+│  🌉 Bridge ──── Auth Request ──────▶ 🌐 ConnectyCube ──── JWT ──────▶ ✅ Session │
+│     Service     Exclusive Creds        Cloud Service      Token        Created   │
+│                 vendas_cc/senha_123     Global Auth       Session ID             │
+│                                                           WebRTC Room            │
+│                                                                                   │
+└───────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ 6️⃣ FLUXO DE MÍDIA (BYPASS ASTERISK) ──────────────────────────────────────────────┐
+│                                                                                   │
+│  📞 Fone ══════ RTP Stream ══════▶ 🌉 Bridge ══════ WebRTC ══════▶ 🌐 ConnectyCube │
+│     SIP         G.711/H.264          SIP.js        Opus/VP8         Global CDN   │
+│     Port        UDP:10000+           Media         Transcoded       P2P/TURN     │
+│     Range       BYPASS Asterisk      Processing    Streams          Relay        │
+│                 ❌ NO PBX MEDIA       ✅ DIRECT                                    │
+│                                                                                   │
+│  🌐 ConnectyCube ══════ WebRTC ══════▶ 📱 Client Apps                            │
+│     Relay Service      P2P/TURN         Mobile/Web                               │
+│                        Optimized        Real-time                                │
+│                                                                                   │
+└───────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ 7️⃣ CONTROLE DURANTE CHAMADA ─────────────────────────────────────────────────────┐
+│                                                                                   │
+│  🎛️ Commands Available:                                                          │
+│     bridge.transferCallViaAmi(channel, "2000")  ──────▶ 🏢 Asterisk            │
+│     bridge.hangupChannelViaAmi(channel)         ──────▶    Redirect/Hangup     │
+│     bridge.bridgeChannelsViaAmi(ch1, ch2)       ──────▶    Real-time Control   │
+│     bridge.originateCallViaAmi("SIP/1001", "3000") ────▶                       │
+│                                                                                   │
+│  📊 Monitoring Real-time:                                                        │
+│     bridge.getAsteriskChannels()     ──────▶ Active channels                    │
+│     bridge.getActiveSessions()       ──────▶ Bridge sessions                    │
+│     AMI Events: channelCreated, hangup, bridge                                  │
+│                                                                                   │
+└───────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ 8️⃣ FINALIZAÇÃO ──────────────────────────────────────────────────────────────────┐
+│                                                                                   │
+│  📞 Fone ────── BYE ──────▶ 🏢 Asterisk ────── AMI Hangup ──────▶ 🌉 Bridge     │
+│     User         SIP           Manager         Event             AMI Handler    │
+│     Hangup       Protocol      Interface       Channel removed   Process       │
+│                                                                                   │
+│  🌉 Bridge ────── End Call ──────▶ 🌐 ConnectyCube ────── Cleanup ──────▶ ✅    │
+│     Service       Session           Service             Session             Done │
+│     Cleanup       Termination       Global              CDR logged               │
+│                                                                                   │
+└───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### **Dashboard em Tempo Real:**
-```typescript
-bridge.on('channelCreated', (event) => {
-  dashboard.updateCallStats({
-    activeCalls: bridge.getAsteriskChannels().size,
-    newCall: event
-  });
-});
-```
+### **⚙️ Componentes Implementados**
 
-## 🛠️ Scripts Disponíveis
+```text
+🎛️ AMI SERVICE (asterisk-ami.service.ts)
+├── ✅ TCP Connection (port 5038)
+├── ✅ Authentication & Keep-alive
+├── ✅ Event Parser (Newchannel, Hangup, Bridge, Dial)
+├── ✅ Command Interface (Transfer, Originate, Bridge)
+└── ✅ Real-time Channel Monitoring
 
-```bash
-# Desenvolvimento
-npm run dev
+🌉 BRIDGE CONTROLLER (sip-direct-bridge.service.ts)
+├── ✅ 3 Operation Modes (sip-only, ami-only, hybrid)
+├── ✅ AMI Integration & Event Handling
+├── ✅ User Mapping System (SIP URI → ConnectyCube)
+├── ✅ Session Management (Active calls tracking)
+└── ✅ ConnectyCube Integration (WebRTC orchestration)
 
-# Exemplo SIP direto (sem Asterisk)
-npm run sip-direct
+📋 USER MAPPING (sip-user-mappings.ts)
+├── ✅ Exclusive Credentials per SIP URI
+├── ✅ Department & User Info
+├── ✅ ConnectyCube User ID mapping
+└── ✅ Lookup Functions (findUserMappingBySipUri)
 
-# Exemplo híbrido (SIP.js + AMI + ConnectyCube) 🆕
-npm run sip-hybrid
-
-# Build para produção
-npm run build
-
-# Executar build
-npm start
+🌐 CONNECTYCUBE SERVICE (connectycube.service.ts)
+├── ✅ JWT Authentication per user
+├── ✅ Session Management
+├── ✅ WebRTC Call Initiation
+└── ✅ Event Handling (Accept, Reject, Hangup)
 ```
