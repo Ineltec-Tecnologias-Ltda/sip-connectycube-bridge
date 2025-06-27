@@ -398,7 +398,8 @@ O sistema fornece estatísticas em tempo real:
 | **Performance** | 🔴 Asterisk sobrecarregado | 🟢 Cada parte otimizada |
 | **Escalabilidade** | 🔴 Monolítico | 🟢 Microserviços |
 | **Manutenção** | 🔴 Expert Asterisk | 🟢 Dev JavaScript |
-| **Updates** | 🔴 Rebuild tudo | 🟢 Deploy independente |
+| **Updates** | 🔴 quebra tudo | 🟢 componentes independentes |
+| **Qualidade** | 🔴 Variável | 🟢 Alta e consistente |
 
 ### **🎯 Especialização = Simplicidade**
 
@@ -1258,165 +1259,373 @@ curl -f http://localhost:3000/health || (echo "❌ Health check failed" && exit 
 echo "✅ Deploy completed successfully!"
 ```
 
-## ❗ **ESCLARECIMENTO CRUCIAL: Servidor SIP vs Bridge**
+## 🔌 **Integração AMI: Vantagens Adicionais**
 
-### **🚫 MITO: "Mídia passa pelo servidor SIP"**
+### **🤔 "Seria vantajoso conectar ao servidor SIP via AMI?"**
 
-**❌ FALSO**: FreeSWITCH, Asterisk e Kamailio **NÃO processam a mídia** nesta arquitetura!
+**✅ SIM!** Para **Asterisk**, conectar via AMI (Asterisk Manager Interface) pode trazer benefícios significativos:
 
-### **✅ REALIDADE: Separação Total de Responsabilidades**
+### **🆚 Comparação: SIP.js vs AMI Integration**
 
-#### **🖥️ Servidor SIP (FreeSWITCH/Asterisk/Kamailio) - SÓ Sinalização:**
+#### **📊 Matriz de Funcionalidades:**
 
-```text
-┌─────────────────┐    ┌──────────────────┐
-│   FONE SIP      │    │   SERVIDOR SIP   │
-│                 │    │                  │
-│ 📞 INVITE ──────┼────┼→ Processa SIP    │
-│ 📞 BYE    ──────┼────┼→ Autentica       │  
-│ 📞 ACK    ──────┼────┼→ Roteia          │
-│ 📞 REGISTER ────┼────┼→ Registra        │
-│                 │    │                  │
-│ 🎤 RTP Audio    │    │ ❌ NÃO TOCA      │
-│ 📹 RTP Video ───┼────┼→ ❌ BYPASS       │
-│                 │    │                  │
-└─────────────────┘    └──────────────────┘
-```
+| **Funcionalidade** | **SIP.js Direto** | **AMI Integration** | **Híbrido (Recomendado)** |
+|-------------------|-------------------|-------------------|---------------------------|
+| **Mídia RTP** | ✅ Excelente | ❌ Não suporta | ✅ SIP.js para mídia |
+| **Sinalização** | ✅ Básica | ✅ Completa | ✅ AMI para controle |
+| **CDR/Logs** | ❌ Limitado | ✅ Completo | ✅ AMI para logs |
+| **Transferência** | ❌ Complexo | ✅ Simples | ✅ AMI para transfer |
+| **Conferência** | ❌ Limitado | ✅ Nativo | ✅ AMI para conference |
+| **Monitoring** | ⚠️ Manual | ✅ Automático | ✅ AMI para status |
+| **Controle Chamadas** | ⚠️ Básico | ✅ Avançado | ✅ AMI para controle |
 
-**O que o servidor SIP FAZ:**
-- ✅ Registro de usuários (REGISTER)
-- ✅ Sinalização de chamadas (INVITE, BYE, ACK)
-- ✅ Autenticação SIP (401 Unauthorized)
-- ✅ Roteamento de chamadas
-- ✅ Notifica o Bridge sobre nova chamada
+### **🔄 Arquitetura Híbrida Recomendada:**
 
-**O que o servidor SIP NÃO FAZ:**
-- ❌ Processar RTP (áudio/vídeo)
-- ❌ Transcodificar codecs
-- ❌ Falar com ConnectyCube
-- ❌ Converter RTP → WebRTC
-
-#### **🌉 Bridge - SÓ Mídia:**
+#### **🎯 Melhor dos Dois Mundos:**
 
 ```text
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   FONE SIP      │    │      BRIDGE      │    │  CONNECTYCUBE   │
+│   FONE SIP      │    │    ASTERISK      │    │     BRIDGE      │
 │                 │    │                  │    │                 │
-│ 📞 SIP ─────────┼────┼→ ❌ NÃO TOCA     │    │                 │
+│ 📞 SIP ─────────┼────┼→ Sinalização     │    │                 │
 │                 │    │                  │    │                 │
-│ 🎤 RTP Audio ───┼────┼→ ✅ DECODIFICA   │    │                 │
-│ 📹 RTP Video ───┼────┼→ ✅ TRANSCODIFICA├────┼→ WebRTC Stream  │
-│              ←──┼────┼← ✅ CODIFICA  ←──┼────┼← WebRTC Stream  │
+│ 🎤 RTP Audio ───┼────┼→ ❌ BYPASS ──────┼────┼→ ✅ Processa    │
+│ 📹 RTP Video ───┼────┼→ ❌ BYPASS ──────┼────┼→ ✅ Transcodifica│
 │                 │    │                  │    │                 │
+│                 │    │ 📊 AMI Events ───┼────┼→ ✅ Monitora    │
+│                 │    │ 🎛️ AMI Commands ←┼────┼← ✅ Controla    │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
-**O que o Bridge FAZ:**
-- ✅ Recebe RTP diretamente do fone
-- ✅ Decodifica áudio/vídeo
-- ✅ Transcodifica codecs (G.711 → Opus)
-- ✅ Converte RTP → WebRTC
-- ✅ Envia para ConnectyCube
+### **⚡ Vantagens da Integração AMI:**
 
-**O que o Bridge NÃO FAZ:**
-- ❌ Sinalização SIP
-- ❌ Registro de usuários
-- ❌ Autenticação SIP
+#### **1. 📊 Monitoramento Avançado:**
 
-### **🔄 Fluxo REAL Completo:**
-
-#### **1. Inicialização da Chamada:**
-
-```text
-📞 Fone SIP: "INVITE sip:destino@empresa.com"
-     ↓
-🖥️ Servidor SIP: "Usuário autenticado, roteando..."
-     ↓ (notificação)
-🌉 Bridge: "Nova chamada detectada, conectando ao ConnectyCube"
-     ↓
-🌐 ConnectyCube: "Chamada WebRTC iniciada"
+```typescript
+// AMI Events em tempo real
+class AsteriskAMIIntegration {
+  onAMIEvent(event: AMIEvent) {
+    switch(event.Event) {
+      case 'Newchannel':
+        console.log(`Nova chamada: ${event.Channel}`);
+        this.bridge.prepareForCall(event.Channel);
+        break;
+        
+      case 'Hangup':
+        console.log(`Chamada finalizada: ${event.Channel}`);
+        this.bridge.cleanupCall(event.Channel);
+        break;
+        
+      case 'Newstate':
+        console.log(`Estado mudou: ${event.Channel} -> ${event.ChannelState}`);
+        this.updateCallStatus(event.Channel, event.ChannelState);
+        break;
+    }
+  }
+}
 ```
 
-#### **2. Estabelecimento da Mídia:**
+#### **2. 🎛️ Controle Avançado de Chamadas:**
 
-```text
-📞 Fone SIP ──────RTP──────→ 🌉 Bridge ──────WebRTC──────→ 🌐 ConnectyCube
-              (direto)                    (direto)
-              BYPASS                      
-           🖥️ Servidor SIP
+```typescript
+// Controle via AMI
+class CallControl {
+  async transferCall(channel: string, destination: string) {
+    // Via AMI - muito mais simples que SIP REFER
+    await this.ami.action('Redirect', {
+      Channel: channel,
+      Exten: destination,
+      Context: 'transfer-context'
+    });
+  }
+  
+  async holdCall(channel: string) {
+    // Hold nativo do Asterisk
+    await this.ami.action('Hold', { Channel: channel });
+  }
+  
+  async conferenceCall(channels: string[]) {
+    // Adiciona múltiplos canais em conferência
+    for (const channel of channels) {
+      await this.ami.action('ConfbridgeJoin', {
+        Channel: channel,
+        Conference: 'bridge-conf-001'
+      });
+    }
+  }
+}
 ```
 
-#### **3. Finalização da Chamada:**
+#### **3. 📈 Analytics e CDR Completos:**
 
-```text
-📞 Fone SIP: "BYE"
-     ↓
-🖥️ Servidor SIP: "Chamada finalizada"
-     ↓ (notificação)
-🌉 Bridge: "Desconectando ConnectyCube"
-     ↓
-🌐 ConnectyCube: "Chamada WebRTC encerrada"
+```typescript
+// CDR em tempo real via AMI
+class CallAnalytics {
+  onCDREvent(cdr: CDREvent) {
+    const callData = {
+      src: cdr.Source,
+      dst: cdr.Destination,
+      startTime: new Date(cdr.StartTime),
+      duration: parseInt(cdr.Duration),
+      disposition: cdr.Disposition,
+      // Dados específicos do ConnectyCube
+      connectyCubeUser: this.bridge.getConnectyCubeUser(cdr.Source),
+      mediaQuality: this.bridge.getMediaStats(cdr.UniqueID)
+    };
+    
+    // Salva analytics completos
+    await this.analytics.saveCDR(callData);
+  }
+}
 ```
 
-### **📊 Comparação: Tráfego por Componente**
+### **🔧 Implementação Prática:**
 
-| **Componente** | **Sinalização SIP** | **Mídia RTP** | **Função** |
-|----------------|---------------------|---------------|------------|
-| **Servidor SIP** | ✅ 100% | ❌ 0% | Controle |
-| **Bridge** | ❌ 0% | ✅ 100% | Mídia |
-| **ConnectyCube** | ❌ 0% | ✅ 100% WebRTC | Distribuição |
+#### **Bridge com AMI + SIP.js:**
 
-### **⚡ Por que Essa Separação é GENIAL?**
+```typescript
+import { AMIClient } from 'asterisk-ami-client';
+import { UserAgent } from 'sip.js';
 
-#### **🔧 Vantagens da Separação:**
-
-**1. Especialização:**
-- **Servidor SIP**: Faz SIP muito bem
-- **Bridge**: Faz RTP↔WebRTC muito bem
-- **ConnectyCube**: Faz WebRTC muito bem
-
-**2. Escalabilidade:**
-```text
-🖥️ 1 Servidor SIP → 1000 registros (leve)
-🌉 3 Bridges → 100 chamadas cada (pesado)
+class HybridSipBridge {
+  private ami: AMIClient;
+  private sipClient: UserAgent;
+  
+  async initialize() {
+    // 1. Conecta AMI para controle
+    this.ami = new AMIClient({
+      host: 'asterisk.empresa.com',
+      port: 5038,
+      username: 'bridge_user',
+      secret: 'bridge_secret'
+    });
+    
+    // 2. Conecta SIP para mídia
+    this.sipClient = new UserAgent({
+      uri: UserAgent.makeURI('sip:bridge@empresa.com'),
+      transportOptions: {
+        server: 'ws://asterisk.empresa.com:8088/ws'
+      }
+    });
+    
+    // 3. Event handlers
+    this.setupAMIHandlers();
+    this.setupSIPHandlers();
+  }
+  
+  private setupAMIHandlers() {
+    // Monitora eventos de chamada
+    this.ami.on('event', (event) => {
+      if (event.Event === 'Newchannel') {
+        this.onNewCall(event);
+      }
+    });
+  }
+  
+  private setupSIPHandlers() {
+    // Processa mídia RTP
+    this.sipClient.delegate = {
+      onInvite: (invitation) => {
+        this.handleMediaStream(invitation);
+      }
+    };
+  }
+  
+  private async onNewCall(event: AMIEvent) {
+    // 1. AMI detecta nova chamada
+    const channel = event.Channel;
+    const callerNumber = event.CallerIDNum;
+    
+    // 2. Mapeia para ConnectyCube
+    const connectyCubeUser = this.getUserMapping(callerNumber);
+    
+    // 3. Prepara bridge de mídia
+    await this.prepareMediaBridge(channel, connectyCubeUser);
+    
+    // 4. Inicia chamada ConnectyCube
+    await this.connectyCube.initiateCall(connectyCubeUser);
+  }
+}
 ```
 
-**3. Manutenção:**
-- Atualizar Bridge ≠ mexer no servidor SIP
-- Problema na mídia ≠ problema na sinalização
+### **📋 Configuração AMI no Asterisk:**
 
-**4. Performance:**
-- Servidor SIP: CPU baixo (só texto)
-- Bridge: CPU alto (processamento de mídia)
+#### **manager.conf:**
 
-### **🆚 vs Asterisk Monolítico:**
+```ini
+[general]
+enabled = yes
+port = 5038
+bindaddr = 127.0.0.1
+displayconnects = no
 
-#### **❌ Asterisk Tradicional:**
-```text
-┌─────────────────────────────────────────┐
-│            ASTERISK FAZE TUDO           │
-│                                         │
-│ 📞 SIP + 🎤 RTP + 🌐 WebRTC + 📋 PBX   │
-│                                         │
-│ Um processo só = Um ponto de falha      │
-└─────────────────────────────────────────┘
+[bridge_user]
+secret = bridge_secret_123
+read = system,call,log,verbose,command,agent,user,config,command,dtmf,reporting,cdr,dialplan
+write = system,call,log,verbose,command,agent,user,config,command,dtmf,reporting,cdr,dialplan
 ```
 
-#### **✅ Nossa Arquitetura:**
-```text
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│ SERVIDOR    │  │   BRIDGE    │  │CONNECTYCUBE │
-│    SIP      │  │             │  │             │
-│ 📞 SIP Only │  │ 🎤 RTP Only │  │ 🌐 WebRTC   │
-│             │  │             │  │             │
-│ Especialista│  │ Especialista│  │ Especialista│
-└─────────────┘  └─────────────┘  └─────────────┘
+#### **extensions.conf (mínimo):**
+
+```ini
+[usuarios_internos]
+; Apenas roteamento - mídia vai direto para bridge
+exten => _X.,1,NoOp(Chamada de ${CALLERID(num)} para ${EXTEN})
+exten => _X.,n,Set(BRIDGE_PEER=${EXTEN})
+exten => _X.,n,UserEvent(BridgeCall,Channel: ${CHANNEL},Caller: ${CALLERID(num)},Called: ${EXTEN})
+exten => _X.,n,Wait(300) ; Espera bridge processar
+exten => _X.,n,Hangup()
 ```
 
-### **🎯 Conclusão: Separação Clara**
+### **🎯 Casos de Uso Específicos para AMI:**
 
-**Servidor SIP = Garçom** (anota pedido, não cozinha)
-**Bridge = Cozinheiro** (processa a "mídia", não atende cliente)
-**ConnectyCube = Entregador** (distribui o produto final)
+#### **1. 📞 Call Center com Supervisão:**
 
-Cada um faz **uma coisa muito bem**, em vez de um componente tentando fazer tudo mal.
+```typescript
+class CallCenterBridge {
+  async monitorCall(agentChannel: string, supervisorUser: string) {
+    // Via AMI - muito mais simples
+    await this.ami.action('Monitor', {
+      Channel: agentChannel,
+      Format: 'wav',
+      Mix: 'true'
+    });
+    
+    // Adiciona supervisor na chamada ConnectyCube
+    await this.connectyCube.addParticipant(supervisorUser);
+  }
+  
+  async whisperToAgent(agentChannel: string, message: string) {
+    // Whisper via AMI
+    await this.ami.action('Whisper', {
+      Channel: agentChannel,
+      Message: message
+    });
+  }
+}
+```
+
+#### **2. 🔄 Transferência Inteligente:**
+
+```typescript
+class SmartTransfer {
+  async blindTransfer(channel: string, destination: string) {
+    // 1. Via AMI - transfere no Asterisk
+    await this.ami.action('Redirect', {
+      Channel: channel,
+      Exten: destination,
+      Context: 'transfer-context'
+    });
+    
+    // 2. Atualiza chamada ConnectyCube
+    const newConnectyCubeUser = this.getUserMapping(destination);
+    await this.connectyCube.transferCall(newConnectyCubeUser);
+  }
+  
+  async attendedTransfer(channel1: string, channel2: string) {
+    // Conferência via AMI
+    await this.ami.action('Bridge', {
+      Channel1: channel1,
+      Channel2: channel2
+    });
+  }
+}
+```
+
+#### **3. 📊 Dashboard em Tempo Real:**
+
+```typescript
+class RealTimeDashboard {
+  private callStats = new Map();
+  
+  onAMIEvent(event: AMIEvent) {
+    switch(event.Event) {
+      case 'Newchannel':
+        this.callStats.set(event.Channel, {
+          start: new Date(),
+          caller: event.CallerIDNum,
+          status: 'ringing'
+        });
+        this.updateDashboard();
+        break;
+        
+      case 'Bridge':
+        const call = this.callStats.get(event.Channel1);
+        if (call) {
+          call.status = 'connected';
+          call.connectedAt = new Date();
+        }
+        this.updateDashboard();
+        break;
+    }
+  }
+  
+  getDashboardData() {
+    return {
+      activeCalls: this.callStats.size,
+      callsInQueue: this.getQueuedCalls(),
+      averageWaitTime: this.calculateAverageWait(),
+      agentsAvailable: this.getAvailableAgents()
+    };
+  }
+}
+```
+
+### **⚖️ AMI vs SIP.js: Quando Usar Cada Um**
+
+#### **✅ Use AMI para:**
+- 📊 **Monitoring completo** - eventos em tempo real
+- 🎛️ **Controle avançado** - transfer, hold, conference
+- 📈 **Analytics/CDR** - dados completos de chamadas
+- 👥 **Call center** - supervisão, whisper, barge
+- 🔄 **Integrações** - CRM, helpdesk, etc.
+
+#### **✅ Use SIP.js para:**
+- 🎤 **Mídia RTP** - processamento de áudio/vídeo
+- ⚡ **Performance** - baixa latência
+- 🌐 **WebRTC** - conversão direta
+- 🔄 **Transcodificação** - codecs diferentes
+
+### **🏆 Arquitetura Híbrida Recomendada:**
+
+```typescript
+class OptimalBridge {
+  // AMI para controle e monitoring
+  private ami: AMIClient;
+  
+  // SIP.js para mídia
+  private sipClient: UserAgent;
+  
+  // ConnectyCube para WebRTC
+  private connectyCube: ConnectyCubeService;
+  
+  async handleCall(amiEvent: AMIEvent) {
+    // 1. AMI detecta e controla
+    const callData = this.extractCallData(amiEvent);
+    
+    // 2. SIP.js processa mídia
+    const mediaStream = await this.sipClient.processMedia(callData.channel);
+    
+    // 3. ConnectyCube distribui WebRTC
+    await this.connectyCube.bridgeCall(callData.connectyCubeUser, mediaStream);
+    
+    // 4. AMI monitora status
+    this.ami.monitor(callData.channel);
+  }
+}
+```
+
+### **💡 Conclusão: AMI como Complemento Perfeito**
+
+**🎯 Estratégia Recomendada:**
+
+1. **AMI** - Controle, monitoring e integrações avançadas
+2. **SIP.js** - Processamento de mídia RTP ↔ WebRTC  
+3. **ConnectyCube** - Distribuição WebRTC nativa
+
+**Resultado:** Sistema **híbrido** que combina o melhor de cada tecnologia:
+- **Controle total** via AMI
+- **Performance otimizada** via SIP.js
+- **WebRTC nativo** via ConnectyCube
+
+Esta abordagem oferece **flexibilidade máxima** para implementar funcionalidades avançadas mantendo a performance otimizada para mídia!
